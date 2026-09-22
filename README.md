@@ -1,4 +1,4 @@
-# Ink Wave Maintenance
+# Maintenance
 
 Independent bilingual maintenance operations app for one property. It is a mobile-ready PWA with shared accounts and data.
 

@@ -62,7 +62,7 @@ export default function LoginPage() {
               <Languages className="size-4" />{es ? "English" : "Español"}
             </button>
           </div>
-          <CardTitle className="text-2xl">Ink Wave Maintenance</CardTitle>
+          <CardTitle className="text-2xl">Maintenance</CardTitle>
           <p className="text-sm text-cyan-50/80">{es ? "Trabajo de mantenimiento, conectado y seguro." : "Connected, secure maintenance work."}</p>
         </CardHeader>
         <CardContent className="p-7">

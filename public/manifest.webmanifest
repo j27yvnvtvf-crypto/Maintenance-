@@ -1,11 +1,15 @@
 {
-  "name": "Ink Wave Maintenance",
-  "short_name": "Ink Wave",
-  "description": "Bilingual maintenance operations for supervisors and technicians.",
+  "id": "/",
+  "name": "Maintenance",
+  "short_name": "Maintenance",
+  "description": "Bilingual maintenance operations for managers, supervisors, and technicians.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#f1f6f9",
   "theme_color": "#003a5d",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
       "src": "/icon-192.png",
