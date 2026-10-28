@@ -19,6 +19,10 @@ export async function proxy(request: NextRequest) {
     },
   });
   const { data } = await supabase.auth.getClaims();
+  // API routes enforce their own authentication and must answer with JSON
+  // (401), never with a redirect to the HTML login page. The session-cookie
+  // refresh above still runs for them.
+  if (request.nextUrl.pathname.startsWith("/api/")) return response;
   const publicPath = request.nextUrl.pathname.startsWith("/login") || request.nextUrl.pathname.startsWith("/auth");
 
   if (!data?.claims && !publicPath) {

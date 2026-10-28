@@ -53,7 +53,7 @@ function fallbackTranslate(text: string, target: string) {
   return out;
 }
 
-export async function POST(req: NextRequest) {
+async function handlePost(req: NextRequest) {
   const member = await getCurrentMember();
   if (!isApproved(member)) return NextResponse.json({ error: "Account approval required" }, { status: 403 });
   const body = await req.json() as Record<string, any>;
@@ -145,4 +145,19 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ error: "Unknown AI action" }, { status: 400 });
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    return await handlePost(req);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+    const message = error instanceof Error ? error.message : "Request failed";
+    if (message === "UNAUTHENTICATED") {
+      return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
