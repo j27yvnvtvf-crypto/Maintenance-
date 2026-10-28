@@ -120,7 +120,13 @@ export async function POST(req: NextRequest) {
         due_date: body.dueDate || null, created_by: me.user_id, created_at: now, updated_at: now,
       }).select("*").single();
       if (error) throw error;
-      return NextResponse.json({ job: data });
+      const created = data as WorkOrderRow;
+      const names = new Map<number, string>();
+      if (created.assigned_to) {
+        const assignee = await admin.from("members").select("id, name").eq("id", created.assigned_to).maybeSingle();
+        if (assignee.data) names.set(assignee.data.id, assignee.data.name);
+      }
+      return NextResponse.json({ job: jobForClient(created, names) });
     }
 
     if (body.action === "update_job") {
