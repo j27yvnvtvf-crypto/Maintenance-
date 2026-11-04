@@ -158,7 +158,7 @@ export default function LoginPage() {
               <LockKeyhole />{busy ? (es ? "Procesando…" : "Working…") : mode === "signup" ? (es ? "Crear cuenta" : "Create account") : (es ? "Entrar" : "Sign in")}
             </Button>
           </form>
-          {message && <p className="mt-4 rounded-xl bg-slate-100 p-3 text-sm text-slate-700">{message}</p>}
+          {message && <p role="alert" className="mt-4 rounded-xl bg-slate-100 p-3 text-sm text-slate-700">{message}</p>}
           <p className="mt-6 text-center text-xs leading-5 text-slate-500">{es ? "Después de registrarte, selecciona tu rol. El supervisor aprobará el acceso." : "After registering, select your role. The supervisor will approve access."}</p>
         </CardContent>
       </Card>

@@ -28,6 +28,9 @@ function jobForClient(job: WorkOrderRow, names: Map<number, string>) {
 }
 
 function failure(error: unknown) {
+  if (error instanceof SyntaxError) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
   const message = error instanceof Error ? error.message : "Request failed";
   return NextResponse.json({ error: message === "UNAUTHENTICATED" ? "Sign in required" : message }, { status: message === "UNAUTHENTICATED" ? 401 : 500 });
 }
@@ -66,6 +69,9 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient();
     const me = await getCurrentMember();
     const body = await req.json() as Record<string, unknown>;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
     const now = new Date().toISOString();
 
     if (body.action === "request_role") {
@@ -88,6 +94,7 @@ export async function POST(req: NextRequest) {
       const name = String(body.name || "").trim();
       const role = roles.includes(body.role as Role) ? body.role as Role : "technician";
       if (!email || !name) return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "Enter a valid email address" }, { status: 400 });
       const existing = await admin.from("members").select("id").eq("email", email).maybeSingle();
       const mutation = existing.data
         ? admin.from("members").update({ name, role, requested_role: role, approval_status: "approved", active: true, language: body.language === "es" ? "es" : "en" }).eq("id", existing.data.id).select("*").single()
@@ -102,8 +109,9 @@ export async function POST(req: NextRequest) {
       const id = Number(body.id);
       const role = roles.includes(body.role as Role) ? body.role as Role : null;
       if (!id || !role) return NextResponse.json({ error: "Member and role are required" }, { status: 400 });
-      const { error } = await admin.from("members").update({ role, requested_role: role, approval_status: "approved", active: true }).eq("id", id);
+      const { data: updated, error } = await admin.from("members").update({ role, requested_role: role, approval_status: "approved", active: true }).eq("id", id).select("id");
       if (error) throw error;
+      if (!updated?.length) return NextResponse.json({ error: "Member not found" }, { status: 404 });
       return NextResponse.json({ ok: true });
     }
 
@@ -113,11 +121,18 @@ export async function POST(req: NextRequest) {
       const description = String(body.description || "").trim();
       if (!title || !description) return NextResponse.json({ error: "Title and details are required" }, { status: 400 });
       const assignedTo = body.assignedTo ? Number(body.assignedTo) : null;
+      let dueDate: string | null = null;
+      if (body.dueDate) {
+        if (typeof body.dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)) {
+          return NextResponse.json({ error: "Due date must use YYYY-MM-DD format" }, { status: 400 });
+        }
+        dueDate = body.dueDate;
+      }
       const { data, error } = await admin.from("work_orders").insert({
         title, description, area: String(body.area || "General Area"), category: String(body.category || "General Maintenance"),
         priority: priorities.includes(String(body.priority)) ? body.priority : "medium",
         status: assignedTo ? "assigned" : "open", assigned_to: assignedTo,
-        due_date: body.dueDate || null, created_by: me.user_id, created_at: now, updated_at: now,
+        due_date: dueDate, created_by: me.user_id, created_at: now, updated_at: now,
       }).select("*").single();
       if (error) throw error;
       const created = data as WorkOrderRow;

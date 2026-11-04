@@ -94,7 +94,7 @@ async function api(path: string, body?: unknown) {
   const res = await fetch(path, body ? {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   } : undefined);
-  const payload: any = await res.json();
+  const payload: any = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(payload.error || "Request failed");
   return payload;
 }
@@ -141,8 +141,14 @@ export function Dashboard() {
 
   async function changeLanguage(language: Language) {
     if (!data) return;
+    const previous = data;
     setData({ ...data, me: { ...data.me, language } });
-    await api("/api/dashboard", { action: "set_language", language });
+    try {
+      await api("/api/dashboard", { action: "set_language", language });
+    } catch (error) {
+      setData(previous);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
   }
   async function createJob() {
     setBusy(true);
@@ -165,7 +171,9 @@ export function Dashboard() {
     finally { setBusy(false); }
   }
   async function updateJob(id: number, status: string) {
-    await api("/api/dashboard", { action: "update_job", id, status });
+    try {
+      await api("/api/dashboard", { action: "update_job", id, status });
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     await load();
   }
   async function requestRole(role: Role) {
@@ -173,21 +181,24 @@ export function Dashboard() {
     try {
       await api("/api/dashboard", { action: "request_role", role });
       await load();
-    } finally { setBusy(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
   async function approveMember(id: number, role: Role) {
     setBusy(true);
     try {
       await api("/api/dashboard", { action: "approve_member", id, role });
       await load();
-    } finally { setBusy(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
   async function changeMemberRole(id: number, role: Role) {
     setBusy(true);
     try {
       await api("/api/dashboard", { action: "change_member_role", id, role });
       await load();
-    } finally { setBusy(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
   async function recommend() {
     setBusy(true);
@@ -199,14 +210,16 @@ export function Dashboard() {
         assignedTo: response.result.technicianId ? String(response.result.technicianId) : current.assignedTo,
       }));
       setMessage(response.result.reason);
-    } finally { setBusy(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
   async function dailySummary() {
     setBusy(true);
     try {
       const response = await api("/api/ai", { action: "daily_summary", language: lang });
       setSummary(response.result);
-    } finally { setBusy(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
   async function generateClosure() {
     setBusy(true);
@@ -216,7 +229,8 @@ export function Dashboard() {
         whatDone: closure.whatDone, result: closure.result,
       });
       setClosure((current) => ({ ...current, ...response.result }));
-    } finally { setBusy(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
   async function translateClosure() {
     setBusy(true);
@@ -229,15 +243,18 @@ export function Dashboard() {
       setClosure((current) => ({
         ...current, maintenanceComment: first.result, residentNote: second.result,
       }));
-    } finally { setBusy(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
   async function completeJob() {
-    await api("/api/dashboard", {
-      action: "update_job", id: Number(closure.jobId), status: "completed",
-      completionComment: closure.maintenanceComment, residentNote: closure.residentNote,
-    });
-    setAiOpen(false);
-    await load();
+    try {
+      await api("/api/dashboard", {
+        action: "update_job", id: Number(closure.jobId), status: "completed",
+        completionComment: closure.maintenanceComment, residentNote: closure.residentNote,
+      });
+      setAiOpen(false);
+      await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
   }
 
   if (!data) {
@@ -246,6 +263,11 @@ export function Dashboard() {
         <div className="text-center">
           <Wrench className="mx-auto mb-4 size-10 animate-pulse text-[#006b8f]" />
           <p>{message || "Loading maintenance system…"}</p>
+          {message && (
+            <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-[#006b8f] px-4 py-2 font-bold text-white">
+              Retry / Reintentar
+            </button>
+          )}
         </div>
       </main>
     );
@@ -331,7 +353,7 @@ export function Dashboard() {
         generate={generateClosure} translate={translateClosure} complete={completeJob}
       />
       {message && (
-        <button onClick={() => setMessage("")} className="fixed bottom-24 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-xl lg:bottom-8">
+        <button aria-live="polite" onClick={() => setMessage("")} className="fixed bottom-24 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-xl lg:bottom-8">
           {message}
         </button>
       )}
