@@ -22,6 +22,28 @@ each one is verified. Two layers exist:
 | 5 | A suspended account loses access even with an open session | ✅ Tested at decision level: suspended/revoked states fail the per-request gate and cannot self-reactivate (`canRequestAccess = false`) | ⏳ Pending staging: the same live session goes from 200/approved to 403/suspended right after the admin suspends it (checks 5a–5d) |
 | 6 | The verified administrator keeps exclusive administrative control | ✅ Tested: only `is_admin = true` + approved + active passes `isAdminAccess`; admins cannot act on themselves; app code and migrations never assign `is_admin` (source scan) | ⏳ Pending staging: exactly one `is_admin` row exists (the bootstrapped account) and self-suspension via API is rejected (checks 6/6b) |
 
+## Identity verification data (follow-up, 3 Nov 2026)
+
+At the owner's request, registration now collects the data needed to verify
+that a requester is a real, known person: full name (already required), a
+**personal phone number** (new, required, basic 7–15 digit validation) and
+the free-text job title. The phone travels in the sign-up metadata — the
+same path as the name and job title — and is stored in `members.phone`
+(migration `20261103221500_member_phone.sql`, additive) next to the pending
+request. Applicants can review and correct their name, phone and job title
+from their own access-request screen without touching any other data.
+
+| # | Follow-up check | Decision/static layer | End-to-end layer |
+|---|---|---|---|
+| 7 | Registration requires a valid personal phone | ✅ Tested: the shared validator (`isValidPhone`/`normalizePhone` in `lib/access-rules.ts`) accepts/rejects the case matrix; source contracts confirm the sign-up form validates and sends the phone in the auth metadata, `getCurrentMember` stores it, the `request_access` endpoint re-validates it server-side, and the column arrives via its own additive migration | ⏳ Pending staging: a sign-up/request without a valid phone cannot produce an approvable request with complete data |
+| 8 | The phone never appears in non-admin payloads | ✅ Tested: the source of `memberForClient` (team lists and all shared payloads) never mentions `phone`; the phone-carrying builder `memberForClientWithPhone` is wired in exactly three places — the owner's own `me` object and the administrator-only `pendingTeam` section | ⏳ Pending staging: an approved non-admin's GET response contains no `phone` field anywhere outside their own `me`; the administrator's `pendingTeam` entries show the phone |
+
+Privacy rule, restated: the phone is visible **only** to the administrator
+(in access requests / member detail) and to the account owner in their own
+request screen. The dashboard UI can only display what the API sends, and
+the API sends other members' phones exclusively inside the
+administrator-gated `pendingTeam` section.
+
 ## Why suspension works against open sessions
 
 Supabase Auth sessions are JWTs; they cannot be selectively recalled for a

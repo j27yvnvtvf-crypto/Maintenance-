@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import { createAdminClient, createUserClient } from "@/lib/supabase/server";
 import {
-  isAdminAccess, isApprovedAccess,
+  isAdminAccess, isApprovedAccess, normalizePhone,
   type ApprovalStatus,
 } from "@/lib/access-rules";
 
@@ -18,6 +18,12 @@ export type MemberRow = {
   name: string;
   /** Free-text "Posición / Job Title". Informational only — never a permission. */
   job_title: string | null;
+  /**
+   * Personal phone provided at registration so the administrator can verify
+   * the requester's identity. Personal data: it may only leave the server in
+   * memberForClientWithPhone (owner's own payload / administrator context).
+   */
+  phone: string | null;
   /** The ONLY source of administrative privilege. Set solely via docs/admin-bootstrap.sql or by an existing admin. */
   is_admin: boolean;
   /** @deprecated Legacy column. No longer read for authorization. */
@@ -58,13 +64,22 @@ export async function getCurrentMember(): Promise<MemberRow> {
   const email = (user.email || "").toLowerCase();
   const name = String(user.user_metadata?.full_name || user.user_metadata?.name || email.split("@")[0] || "Team member");
   const jobTitle = String(user.user_metadata?.job_title || "").trim().slice(0, 120) || null;
+  // Same metadata path as name and job title: the sign-up form collects the
+  // personal phone, it lands in user_metadata, and it is stored (normalized,
+  // only when valid) next to the pending access request.
+  const phone = normalizePhone(user.user_metadata?.phone);
 
   let { data: member } = await admin.from("members").select("*").eq("user_id", user.id).maybeSingle<MemberRow>();
   if (!member && email) {
     const existing = await admin.from("members").select("*").eq("email", email).maybeSingle<MemberRow>();
     member = existing.data;
     if (member) {
-      const linked = await admin.from("members").update({ user_id: user.id }).eq("id", member.id).select("*").single<MemberRow>();
+      // Link the row the administrator pre-registered. Its approval state is
+      // NOT changed; if it has no phone yet and the sign-up provided a valid
+      // one, the verification phone is filled in with the request.
+      const linkUpdate: Record<string, unknown> = { user_id: user.id };
+      if (!member.phone && phone) linkUpdate.phone = phone;
+      const linked = await admin.from("members").update(linkUpdate).eq("id", member.id).select("*").single<MemberRow>();
       if (linked.error) throw linked.error;
       member = linked.data;
     }
@@ -76,6 +91,7 @@ export async function getCurrentMember(): Promise<MemberRow> {
       email,
       name,
       job_title: jobTitle,
+      phone,
       role: "technician",
       requested_role: null,
       approval_status: "pending",
@@ -90,6 +106,12 @@ export async function getCurrentMember(): Promise<MemberRow> {
   return member;
 }
 
+/**
+ * Default member payload. It deliberately EXCLUDES the personal phone:
+ * this builder feeds team lists and every other payload that approved
+ * (non-administrator) accounts receive, and the phone is verification
+ * data for the administrator only.
+ */
 export function memberForClient(member: MemberRow) {
   return {
     id: member.id,
@@ -103,6 +125,19 @@ export function memberForClient(member: MemberRow) {
     active: member.active,
     createdAt: member.created_at,
   };
+}
+
+/**
+ * Member payload WITH the personal phone. Use ONLY where the viewer is
+ * entitled to it:
+ * - the account owner's own `me` object (people can see and correct their
+ *   own request data), and
+ * - administrator-only payloads (the access-request / pending list).
+ * Never use it for team lists, assignments or anything a non-administrator
+ * can read — see scripts/verify-access-model.mjs, check 8.
+ */
+export function memberForClientWithPhone(member: MemberRow) {
+  return { ...memberForClient(member), phone: member.phone };
 }
 
 /** Approved operational access — identical for every approved account. */
