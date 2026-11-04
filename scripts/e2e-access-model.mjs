@@ -70,7 +70,7 @@ async function api(session, body) {
 
 async function signUp(email, password, jobTitle) {
   const { data, error } = await anon.auth.signUp({
-    email, password, options: { data: { full_name: email.split("@")[0], job_title: jobTitle } },
+    email, password, options: { data: { full_name: email.split("@")[0], job_title: jobTitle, phone: "+1 352 555 0100" } },
   });
   if (error) throw error;
   if (data.session) return data.session;

@@ -13,6 +13,9 @@
  *     runtime, no role gates left, no delete path for work orders or
  *     history, is_admin never assigned by app code, per-request state
  *     checks, deny-by-default RLS for the audit log, additive migration).
+ *  3. Identity-data checks (7 and 8, added 3 Nov 2026) — registration must
+ *     require a valid personal phone for identity verification, and that
+ *     phone must never appear in API payloads served to non-administrators.
  *
  * What this suite does NOT prove: live HTTP behavior against a real
  * Supabase (pending accounts receiving 403s end to end, a suspended session
@@ -34,6 +37,8 @@ import {
   canRequestAccess,
   isAdminAccess,
   isApprovedAccess,
+  isValidPhone,
+  normalizePhone,
 } from "../lib/access-rules.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -226,4 +231,73 @@ test("contract: registration has no role selector; job title is free text", () =
   const dash = read("app/dashboard.tsx");
   assert.ok(!dash.includes("request_role"));
   assert.ok(dash.includes("request_access"));
+});
+
+// ---------------------------------------------------------------------------
+// Follow-up check 7 (3 Nov 2026, owner requirement) — registration requires
+// identity-verification data: full name (already collected) and a VALID
+// PERSONAL PHONE. The phone travels the same path as the name and the job
+// title: sign-up metadata -> user_metadata -> members row, stored next to
+// the pending access request. (HTTP behavior against staging: pending,
+// like the rest of the E2E layer.)
+// ---------------------------------------------------------------------------
+test("7. Registration requires a valid personal phone, wired end to end", () => {
+  // Decision level: the exact validator the login form and the API share.
+  for (const ok of ["3525551234", "+1 (352) 555-1234", "+34 612 345 678", "555-1234", "+1 352 555 1234"]) {
+    assert.equal(isValidPhone(ok), true, ok);
+  }
+  for (const bad of ["", "   ", "123456", "1234567890123456", "call-me-now", "+", "++1 352 555 1234", null, undefined, 3525551234]) {
+    assert.equal(isValidPhone(bad), false, String(bad));
+  }
+  assert.equal(normalizePhone("+1 (352) 555-1234"), "+13525551234");
+  assert.equal(normalizePhone("352 555 1234"), "3525551234");
+  assert.equal(normalizePhone("not a phone"), null);
+
+  // The sign-up form validates and sends the phone in the auth metadata.
+  const login = read("app/login/page.tsx");
+  assert.ok(login.includes("isValidPhone"));
+  assert.ok(/data:\s*\{[^}]*phone/.test(login), "signUp metadata must carry phone");
+
+  // The member row is created from that metadata, phone included.
+  const access = read("lib/access.ts");
+  assert.ok(access.includes("user_metadata?.phone"));
+  assert.ok(access.includes("normalizePhone"));
+
+  // The server re-validates on request submission/update (client checks
+  // alone are not enforcement).
+  const route = read("app/api/dashboard/route.ts");
+  assert.ok(route.includes("isValidPhone(body.phone)"));
+
+  // The column arrives via an additive migration of its own.
+  const migration = read("supabase/migrations/20261103221500_member_phone.sql");
+  assert.ok(migration.includes("add column if not exists phone text"));
+  assert.ok(!/drop table/i.test(migration));
+  assert.ok(!/drop column/i.test(migration));
+});
+
+// ---------------------------------------------------------------------------
+// Follow-up check 8 — the personal phone never leaks into non-admin
+// payloads. It may leave the server only in (a) the account owner's own
+// `me` object and (b) the administrator-only pendingTeam section. Team
+// lists and every other shared payload are built with the phone-free
+// memberForClient, whose source must never mention the field.
+// ---------------------------------------------------------------------------
+test("8. Phone is excluded from every non-admin payload", () => {
+  const access = read("lib/access.ts");
+  const start = access.indexOf("export function memberForClient(");
+  assert.ok(start >= 0);
+  // Slice only the function body (up to its closing brace at column 0), so
+  // the doc comments of neighbouring builders cannot pollute the check.
+  const base = access.slice(start, access.indexOf("\n}\n", start));
+  assert.ok(!base.includes("phone"), "memberForClient must not include phone");
+  assert.ok(access.includes("export function memberForClientWithPhone"));
+
+  const route = read("app/api/dashboard/route.ts");
+  // Team list (readable by every approved account) uses the phone-free one.
+  assert.ok(route.includes("team: team.map(memberForClient)"));
+  // The phone-carrying builder appears exactly where it is allowed:
+  // import + owner's `me` (bootstrap and approved) + admin's pendingTeam.
+  assert.equal(route.split("memberForClientWithPhone").length - 1, 4);
+  assert.ok(route.includes("pendingTeam: pendingTeam.map(memberForClientWithPhone)"));
+  assert.ok(route.includes("me: memberForClientWithPhone(me)"));
 });
