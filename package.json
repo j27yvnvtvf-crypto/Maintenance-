@@ -14,7 +14,8 @@
     "verify:access": "node --test scripts/verify-access-model.mjs",
     "verify:library": "node --test scripts/verify-library.mjs",
     "verify:logbook": "node --test scripts/verify-logbook.mjs",
-    "verify:inspections": "node --test scripts/verify-inspections.mjs"
+    "verify:inspections": "node --test scripts/verify-inspections.mjs",
+    "verify:inventory-vendors": "node --test scripts/verify-inventory-vendors.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
