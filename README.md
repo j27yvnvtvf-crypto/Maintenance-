@@ -9,6 +9,7 @@ This source is separate from ChatGPT Sites. It uses its own user accounts and ca
 Job title and permissions are fully separate:
 
 - **Position / Job Title** is a free-text field each person writes about themselves. It is informational only — writing "Manager", "Supervisor" or "Admin" never grants any permission.
+- **Registration asks for identity data**: full name, a personal phone number, email and job title. The phone exists so the administrator can verify that the person requesting access is who they claim to be. It is personal data with a restricted audience: only the administrator sees it (in the access-request list), plus the account owner in their own request screen so they can correct it. It is never included in team lists, work-order payloads or any other response served to non-administrator accounts — the server payload builder for shared data (`memberForClient`) excludes it by construction.
 - **Every account starts pending.** A pending, rejected, suspended or revoked account receives no property data: after signing in it only sees its access-request screen, and every data endpoint answers 403. Approval is granted solely by the administrator.
 - **Approved accounts all have the same operational permissions**, whatever their job title: create, open, update and close work orders, add comments, and use the AI assistant. Closing a work order never deletes it; its record and history are kept, and each update records who did it and when.
 - **Administration is exclusive to one verified account** (the app owner, Jose Suarez). Only the administrator can approve, reject, suspend or revoke accounts, pre-register members, and change how the system works. Every administrative action is written to `admin_audit_log` with actor, target, detail and timestamp.
@@ -25,7 +26,7 @@ The administrator flag (`members.is_admin`) is never set by application code, si
 
 ## Setup
 
-1. Create a Supabase project and run **every** SQL file in `supabase/migrations/` in its SQL editor, in filename order (schema first, then the hardening/indexes migration, then the access-model migration).
+1. Create a Supabase project and run **every** SQL file in `supabase/migrations/` in its SQL editor, in filename order (schema first, then the hardening/indexes migration, then the access-model migrations).
 2. Copy `.env.example` to `.env.local` and add the project values.
 3. Keep `APP_TIMEZONE=America/New_York` for the Ocala property.
 4. After the owner has signed up, grant the administrator flag by running `docs/admin-bootstrap.sql` manually in the Supabase SQL editor (never add it to the migrations folder). No account is an administrator until that script runs.
