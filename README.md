@@ -19,7 +19,7 @@ This source is separate from ChatGPT Sites. It uses its own user accounts and ca
 
 ## Setup
 
-1. Create a Supabase project and run `supabase/migrations/202609210001_initial_schema.sql` in its SQL editor.
+1. Create a Supabase project and run **every** SQL file in `supabase/migrations/` in its SQL editor, in filename order (schema first, then the hardening/indexes migration).
 2. Copy `.env.example` to `.env.local` and add the project values.
 3. Set `SUPERVISOR_EMAILS` to the primary Service Supervisor email.
 4. Keep `APP_TIMEZONE=America/New_York` for the Ocala property.
