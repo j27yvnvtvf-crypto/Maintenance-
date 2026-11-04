@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:access": "node --test scripts/verify-access-model.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

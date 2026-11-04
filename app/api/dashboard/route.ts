@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import {
-  getCurrentMember, isApproved, isServiceSupervisor, memberForClient,
-  type MemberRow, type Role,
+  getCurrentMember, isAdmin, isApproved, memberForClient, memberForClientWithPhone,
+  type MemberRow,
 } from "@/lib/access";
-import { localDate } from "@/lib/time";
+import { canAdminActOn, canRequestAccess, isValidPhone, normalizePhone } from "@/lib/access-rules";
 
-const roles: Role[] = ["manager", "service_supervisor", "technician"];
 const priorities = ["low", "medium", "high", "emergency"];
 const statuses = ["open", "assigned", "in_progress", "on_hold", "completed"];
 
@@ -16,6 +15,8 @@ type WorkOrderRow = {
   completion_comment: string | null; resident_note: string | null;
   created_at: string; updated_at: string;
 };
+
+type AdminClient = ReturnType<typeof createAdminClient>;
 
 function jobForClient(job: WorkOrderRow, names: Map<number, string>) {
   return {
@@ -32,14 +33,55 @@ function failure(error: unknown) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
   const message = error instanceof Error ? error.message : "Request failed";
-  return NextResponse.json({ error: message === "UNAUTHENTICATED" ? "Sign in required" : message }, { status: message === "UNAUTHENTICATED" ? 401 : 500 });
+  if (message === "UNAUTHENTICATED") {
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  }
+  if (message === "APPROVAL_REQUIRED") {
+    return NextResponse.json({ error: "Account approval required" }, { status: 403 });
+  }
+  if (message === "FORBIDDEN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return NextResponse.json({ error: message }, { status: 500 });
+}
+
+/** Append-only administrative audit trail. Failures here never mask the action result silently: they propagate. */
+async function writeAudit(
+  admin: AdminClient,
+  actor: MemberRow,
+  action: "approve_member" | "reject_member" | "suspend_member" | "revoke_member" | "add_member",
+  target: MemberRow,
+  detail: Record<string, unknown>,
+) {
+  const { error } = await admin.from("admin_audit_log").insert({
+    actor_user_id: actor.user_id,
+    actor_member_id: actor.id,
+    actor_email: actor.email,
+    action,
+    target_member_id: target.id,
+    target_email: target.email,
+    detail,
+  });
+  if (error) throw error;
 }
 
 export async function GET() {
   try {
     const me = await getCurrentMember();
     if (!isApproved(me)) {
-      return NextResponse.json({ me: memberForClient(me), team: [], jobs: [], registrationRequired: me.approval_status === "unregistered" });
+      // Bootstrap payload ONLY: the account's own state so the UI can show
+      // the pending / rejected / suspended screen. No team, no work orders,
+      // no property data of any kind is included for unapproved accounts.
+      // `me` carries the owner's own phone so they can review and correct
+      // their request data — it is their own personal data, nobody else's.
+      return NextResponse.json({
+        me: memberForClientWithPhone(me),
+        team: [],
+        jobs: [],
+        pendingTeam: [],
+        auditLog: [],
+        accessState: me.approval_status,
+      });
     }
     const admin = createAdminClient();
     const [{ data: teamRows, error: teamError }, { data: jobRows, error: jobError }] = await Promise.all([
@@ -50,15 +92,36 @@ export async function GET() {
     if (jobError) throw jobError;
     const allTeam = (teamRows || []) as MemberRow[];
     const names = new Map(allTeam.map((person) => [person.id, person.name]));
-    const allJobs = ((jobRows || []) as WorkOrderRow[]).map((job) => jobForClient(job, names));
-    const today = localDate();
-    const jobs = me.role === "technician"
-      ? allJobs.filter((job) => job.status !== "completed" || localDate(job.updatedAt) === today || job.dueDate === today)
-      : allJobs;
-    const team = me.role === "service_supervisor"
-      ? allTeam
-      : allTeam.filter((person) => person.active && person.approval_status === "approved");
-    return NextResponse.json({ me: memberForClient(me), team: team.map(memberForClient), jobs, registrationRequired: false });
+    // Every approved account sees the same operational data and the same
+    // approved team list — permissions no longer depend on any role.
+    const jobs = ((jobRows || []) as WorkOrderRow[]).map((job) => jobForClient(job, names));
+    const team = allTeam.filter((person) => person.active && person.approval_status === "approved");
+    // Administrative data (access requests, suspended accounts, audit log)
+    // is included only for the administrator.
+    let pendingTeam: MemberRow[] = [];
+    let auditLog: unknown[] = [];
+    if (isAdmin(me)) {
+      pendingTeam = allTeam.filter((person) => !(person.active && person.approval_status === "approved"));
+      const { data: logRows, error: logError } = await admin
+        .from("admin_audit_log")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (logError) throw logError;
+      auditLog = logRows || [];
+    }
+    return NextResponse.json({
+      me: memberForClientWithPhone(me),
+      // Team list: the phone-free payload. No non-administrator ever
+      // receives another member's personal phone from this endpoint.
+      team: team.map(memberForClient),
+      jobs,
+      // Administrator-only section: pending/inactive accounts WITH their
+      // verification phone, so the administrator can confirm identities.
+      pendingTeam: pendingTeam.map(memberForClientWithPhone),
+      auditLog,
+      accessState: "approved",
+    });
   } catch (error) {
     return failure(error);
   }
@@ -74,10 +137,43 @@ export async function POST(req: NextRequest) {
     }
     const now = new Date().toISOString();
 
-    if (body.action === "request_role") {
-      const role = roles.includes(body.role as Role) ? body.role as Role : null;
-      if (!role) return NextResponse.json({ error: "Select a valid role" }, { status: 400 });
-      const { error } = await admin.from("members").update({ requested_role: role, approval_status: "pending", active: false }).eq("id", me.id);
+    // --- Actions available before approval (identity and request only) ---
+    if (body.action === "request_access") {
+      // Submits or updates the access request with the identity data the
+      // administrator uses to verify the person: full name, personal phone
+      // and a free-text job title. None of it grants permissions: the job
+      // title is informational only, whatever it says, and the phone is a
+      // verification datum visible only to the administrator.
+      const name = String(body.name || "").trim().slice(0, 120);
+      const jobTitle = String(body.jobTitle || "").trim().slice(0, 120);
+      const update: Record<string, unknown> = { job_title: jobTitle || null };
+      if (canRequestAccess(me)) {
+        // A (re)submitted request must carry complete, valid identity data:
+        // the registration name and a reachable personal phone.
+        if (!name) return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+        if (!isValidPhone(body.phone)) {
+          return NextResponse.json({ error: "Enter a valid personal phone number (7 to 15 digits)" }, { status: 400 });
+        }
+        update.name = name;
+        update.phone = normalizePhone(body.phone);
+        update.approval_status = "pending";
+        update.active = false;
+      } else if (!isApproved(me)) {
+        // Suspended / revoked accounts may correct their data but cannot
+        // reactivate themselves; only the administrator approves again.
+        // (Approved accounts need no request and are left untouched.)
+        if (me.approval_status !== "suspended" && me.approval_status !== "revoked") {
+          return NextResponse.json({ error: "Access request is not available for this account state" }, { status: 400 });
+        }
+        if (name) update.name = name;
+        if (body.phone !== undefined && String(body.phone).trim() !== "") {
+          if (!isValidPhone(body.phone)) {
+            return NextResponse.json({ error: "Enter a valid personal phone number (7 to 15 digits)" }, { status: 400 });
+          }
+          update.phone = normalizePhone(body.phone);
+        }
+      }
+      const { error } = await admin.from("members").update(update).eq("id", me.id);
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }
@@ -86,37 +182,99 @@ export async function POST(req: NextRequest) {
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }
-    if (!isApproved(me)) return NextResponse.json({ error: "Account approval required" }, { status: 403 });
 
-    if (body.action === "add_member") {
-      if (!isServiceSupervisor(me)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const email = String(body.email || "").trim().toLowerCase();
-      const name = String(body.name || "").trim();
-      const role = roles.includes(body.role as Role) ? body.role as Role : "technician";
-      if (!email || !name) return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "Enter a valid email address" }, { status: 400 });
-      const existing = await admin.from("members").select("id").eq("email", email).maybeSingle();
-      const mutation = existing.data
-        ? admin.from("members").update({ name, role, requested_role: role, approval_status: "approved", active: true, language: body.language === "es" ? "es" : "en" }).eq("id", existing.data.id).select("*").single()
-        : admin.from("members").insert({ email, name, role, requested_role: role, approval_status: "approved", active: true, language: body.language === "es" ? "es" : "en" }).select("*").single();
-      const { data, error } = await mutation;
-      if (error) throw error;
-      return NextResponse.json({ member: memberForClient(data as MemberRow) });
-    }
+    // --- Everything below is a data or operational endpoint ---
+    // Enforcement is per request, on the server, from the database state:
+    // a suspended account with an open session gets 403 on its next call.
+    if (!isApproved(me)) throw new Error("APPROVAL_REQUIRED");
 
-    if (body.action === "approve_member" || body.action === "change_member_role") {
-      if (!isServiceSupervisor(me)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // --- Administrative actions: administrator only, never on oneself ---
+    const adminActions = ["add_member", "approve_member", "reject_member", "suspend_member", "revoke_member"];
+    if (adminActions.includes(String(body.action))) {
+      if (!isAdmin(me)) throw new Error("FORBIDDEN");
+      const action = String(body.action);
+
+      if (action === "add_member") {
+        // Pre-registers a person by email. The account is created PENDING:
+        // it grants nothing until the person signs up and the administrator
+        // approves. Only the administrator can do this.
+        const email = String(body.email || "").trim().toLowerCase();
+        const name = String(body.name || "").trim();
+        const jobTitle = String(body.jobTitle || "").trim().slice(0, 120);
+        if (!email || !name) return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "Enter a valid email address" }, { status: 400 });
+        const existing = await admin.from("members").select("id").eq("email", email).maybeSingle();
+        if (existing.data) return NextResponse.json({ error: "A member with this email already exists" }, { status: 409 });
+        const { data, error } = await admin.from("members").insert({
+          email, name, job_title: jobTitle || null,
+          role: "technician", requested_role: null,
+          approval_status: "pending", active: false, is_admin: false,
+          language: body.language === "es" ? "es" : "en",
+        }).select("*").single();
+        if (error) throw error;
+        await writeAudit(admin, me, "add_member", data as MemberRow, { jobTitle: jobTitle || null });
+        return NextResponse.json({ member: memberForClient(data as MemberRow) });
+      }
+
       const id = Number(body.id);
-      const role = roles.includes(body.role as Role) ? body.role as Role : null;
-      if (!id || !role) return NextResponse.json({ error: "Member and role are required" }, { status: 400 });
-      const { data: updated, error } = await admin.from("members").update({ role, requested_role: role, approval_status: "approved", active: true }).eq("id", id).select("id");
+      if (!id) return NextResponse.json({ error: "Member is required" }, { status: 400 });
+      const targetResult = await admin.from("members").select("*").eq("id", id).maybeSingle<MemberRow>();
+      if (targetResult.error) throw targetResult.error;
+      const target = targetResult.data;
+      if (!target) return NextResponse.json({ error: "Member not found" }, { status: 404 });
+      if (!canAdminActOn(me, target)) {
+        return NextResponse.json({ error: "You cannot change your own access" }, { status: 400 });
+      }
+      const fromStatus = target.approval_status;
+
+      if (action === "approve_member") {
+        const { error } = await admin.from("members").update({ approval_status: "approved", active: true }).eq("id", id);
+        if (error) throw error;
+        await writeAudit(admin, me, "approve_member", target, { fromStatus });
+        return NextResponse.json({ ok: true });
+      }
+      if (action === "reject_member") {
+        const { error } = await admin.from("members").update({ approval_status: "rejected", active: false }).eq("id", id);
+        if (error) throw error;
+        await writeAudit(admin, me, "reject_member", target, { fromStatus });
+        return NextResponse.json({ ok: true });
+      }
+      if (action === "suspend_member") {
+        const { error } = await admin.from("members").update({ approval_status: "suspended", active: false }).eq("id", id);
+        if (error) throw error;
+        // Session enforcement: every API route re-reads the member state
+        // from the database on each request (getCurrentMember), and all
+        // property data flows through those routes — the browser never
+        // holds a data-capable key (RLS denies anon/authenticated). An
+        // already-open session therefore loses all access on its very next
+        // request even though its auth cookie has not expired.
+        await writeAudit(admin, me, "suspend_member", target, {
+          fromStatus,
+          enforcement: "per_request_state_check",
+        });
+        return NextResponse.json({ ok: true });
+      }
+      // revoke_member: definitive removal of access. The auth account is
+      // deleted (which also destroys its sessions and refresh tokens) and
+      // the member row is kept, marked 'revoked' and unlinked, so the
+      // administrative history of the account is preserved.
+      let authDeleted = false;
+      if (target.user_id) {
+        try {
+          const { error: deleteError } = await admin.auth.admin.deleteUser(target.user_id);
+          authDeleted = !deleteError;
+        } catch {
+          authDeleted = false;
+        }
+      }
+      const { error } = await admin.from("members").update({ approval_status: "revoked", active: false, user_id: null }).eq("id", id);
       if (error) throw error;
-      if (!updated?.length) return NextResponse.json({ error: "Member not found" }, { status: 404 });
+      await writeAudit(admin, me, "revoke_member", target, { fromStatus, authUserDeleted: authDeleted });
       return NextResponse.json({ ok: true });
     }
 
+    // --- Operational actions: identical for every approved account ---
     if (body.action === "create_job") {
-      if (!isServiceSupervisor(me)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       const title = String(body.title || "").trim();
       const description = String(body.description || "").trim();
       if (!title || !description) return NextResponse.json({ error: "Title and details are required" }, { status: 400 });
@@ -132,7 +290,7 @@ export async function POST(req: NextRequest) {
         title, description, area: String(body.area || "General Area"), category: String(body.category || "General Maintenance"),
         priority: priorities.includes(String(body.priority)) ? body.priority : "medium",
         status: assignedTo ? "assigned" : "open", assigned_to: assignedTo,
-        due_date: dueDate, created_by: me.user_id, created_at: now, updated_at: now,
+        due_date: dueDate, created_by: me.user_id, created_at: now, updated_at: now, updated_by: me.user_id,
       }).select("*").single();
       if (error) throw error;
       const created = data as WorkOrderRow;
@@ -145,18 +303,29 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === "update_job") {
-      if (me.role === "manager") return NextResponse.json({ error: "Manager access is read-only" }, { status: 403 });
+      // Any approved account may update and close any work order, whatever
+      // its job title says. Closing never deletes the record.
       const id = Number(body.id);
       const current = await admin.from("work_orders").select("*").eq("id", id).maybeSingle<WorkOrderRow>();
       if (current.error) throw current.error;
       if (!current.data) return NextResponse.json({ error: "Work order not found" }, { status: 404 });
+      const nextStatus = statuses.includes(String(body.status)) ? String(body.status) : current.data.status;
       const update: Record<string, unknown> = {
-        status: statuses.includes(String(body.status)) ? body.status : current.data.status,
+        status: nextStatus,
         updated_at: now,
+        updated_by: me.user_id,
       };
-      if (isServiceSupervisor(me) && body.assignedTo !== undefined) update.assigned_to = body.assignedTo ? Number(body.assignedTo) : null;
+      if (body.assignedTo !== undefined) update.assigned_to = body.assignedTo ? Number(body.assignedTo) : null;
       if (body.completionComment !== undefined) update.completion_comment = String(body.completionComment || "");
       if (body.residentNote !== undefined) update.resident_note = String(body.residentNote || "");
+      if (nextStatus === "completed" && current.data.status !== "completed") {
+        update.closed_by = me.user_id;
+        update.closed_at = now;
+      }
+      if (nextStatus !== "completed" && current.data.status === "completed") {
+        update.closed_by = null;
+        update.closed_at = null;
+      }
       const { error } = await admin.from("work_orders").update(update).eq("id", id);
       if (error) throw error;
       return NextResponse.json({ ok: true });

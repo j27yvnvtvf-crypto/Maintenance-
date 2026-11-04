@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isValidPhone } from "@/lib/access-rules";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -40,6 +41,8 @@ export default function LoginPage() {
   const [language, setLanguage] = useState<"en" | "es">("es");
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -67,6 +70,20 @@ export default function LoginPage() {
         : "The app is not configured on the server yet. Let the supervisor know.");
       return;
     }
+    if (mode === "signup") {
+      // Registration requires the identity data the administrator uses to
+      // verify the request: full name and a valid personal phone.
+      if (!name.trim()) {
+        setMessage(es ? "Escribe tu nombre completo." : "Enter your full name.");
+        return;
+      }
+      if (!isValidPhone(phone)) {
+        setMessage(es
+          ? "Escribe un teléfono personal válido: solo dígitos (puedes usar +, espacios o guiones), entre 7 y 15 dígitos."
+          : "Enter a valid personal phone number: digits only (you may use +, spaces or dashes), 7 to 15 digits.");
+        return;
+      }
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -75,7 +92,7 @@ export default function LoginPage() {
           email,
           password,
           options: {
-            data: { full_name: name },
+            data: { full_name: name.trim(), job_title: jobTitle.trim(), phone: phone.trim() },
             emailRedirectTo: `${window.location.origin}/auth/callback`,
           },
         });
@@ -121,10 +138,22 @@ export default function LoginPage() {
           )}
           <form onSubmit={submit} className="space-y-4">
             {mode === "signup" && (
-              <div className="space-y-2">
-                <Label htmlFor="full-name">{es ? "Nombre completo" : "Full name"}</Label>
-                <Input id="full-name" required autoComplete="name" placeholder={es ? "Nombre completo" : "Full name"} value={name} onChange={(event) => setName(event.target.value)} />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="full-name">{es ? "Nombre completo" : "Full name"}</Label>
+                  <Input id="full-name" required autoComplete="name" placeholder={es ? "Nombre completo" : "Full name"} value={name} onChange={(event) => setName(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">{es ? "Teléfono personal" : "Personal phone"}</Label>
+                  <Input id="phone" required type="tel" autoComplete="tel" placeholder={es ? "Ej.: +1 352 555 1234" : "E.g.: +1 352 555 1234"} value={phone} onChange={(event) => setPhone(event.target.value)} />
+                  <p className="text-xs text-slate-500">{es ? "Necesario para comprobar que eres tú cuando el administrador revise tu solicitud. Solo el administrador puede verlo." : "Needed to verify it is really you when the administrator reviews your request. Only the administrator can see it."}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="job-title">{es ? "Posición / Job Title" : "Position / Job Title"}</Label>
+                  <Input id="job-title" autoComplete="organization-title" placeholder={es ? "Ej.: Técnico de mantenimiento" : "E.g.: Maintenance Technician"} value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
+                  <p className="text-xs text-slate-500">{es ? "Solo informativo: tu cargo no define tus permisos. El acceso lo aprueba el administrador." : "For information only: your title does not set your permissions. Access is approved by the administrator."}</p>
+                </div>
+              </>
             )}
             <div className="space-y-2">
               <Label htmlFor="email">{es ? "Correo electrónico" : "Email address"}</Label>
@@ -159,7 +188,7 @@ export default function LoginPage() {
             </Button>
           </form>
           {message && <p role="alert" className="mt-4 rounded-xl bg-slate-100 p-3 text-sm text-slate-700">{message}</p>}
-          <p className="mt-6 text-center text-xs leading-5 text-slate-500">{es ? "Después de registrarte, selecciona tu rol. El supervisor aprobará el acceso." : "After registering, select your role. The supervisor will approve access."}</p>
+          <p className="mt-6 text-center text-xs leading-5 text-slate-500">{es ? "Después de registrarte, tu cuenta queda pendiente de aprobación. El administrador debe aprobar tu acceso antes de que puedas entrar." : "After registering, your account stays pending approval. The administrator must approve your access before you can enter."}</p>
         </CardContent>
       </Card>
     </main>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createAdminClient } from "@/lib/supabase/server";
-import { getCurrentMember, isApproved, isServiceSupervisor } from "@/lib/access";
+import { getCurrentMember, isApproved } from "@/lib/access";
 import { localDate } from "@/lib/time";
 
 function extractText(payload: any) {
@@ -74,7 +74,6 @@ async function handlePost(req: NextRequest) {
   const language = body.language === "es" ? "Spanish" : "English";
 
   if (body.action === "professional_comment") {
-    if (member.role === "manager") return NextResponse.json({ error: "Manager access is read-only" }, { status: 403 });
     const prompt = `Write a concise professional multifamily maintenance closure in ${language}. Return strict JSON with maintenanceComment and residentNote. Include inspection/findings, corrective action, operational verification, current condition, and a clear completion statement. Facts only; do not invent. Work performed: ${body.whatDone}. Result: ${body.result}.`;
     const model = await askModel(prompt);
     if (model) {
@@ -95,7 +94,6 @@ async function handlePost(req: NextRequest) {
   }
 
   if (body.action === "translate") {
-    if (member.role === "manager") return NextResponse.json({ error: "Manager access is read-only" }, { status: 403 });
     const target = body.target === "es" ? "Spanish" : "English";
     const model = await askModel(`Translate this maintenance text into natural ${target}. Preserve technical meaning and return only the translation:\n${body.text}`);
     return NextResponse.json({
@@ -105,15 +103,16 @@ async function handlePost(req: NextRequest) {
   }
 
   if (body.action === "recommend") {
-    if (!isServiceSupervisor(member)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // Available to every approved account (access model v2): recommendations
+    // consider all approved, active team members as potential assignees.
     const admin = createAdminClient();
     const [{ data: team, error: teamError }, { data: open, error: workError }] = await Promise.all([
-      admin.from("members").select("id,name,role").eq("active", true),
+      admin.from("members").select("id,name").eq("active", true).eq("approval_status", "approved"),
       admin.from("work_orders").select("assigned_to").neq("status", "completed"),
     ]);
     if (teamError) throw teamError;
     if (workError) throw workError;
-    const loads = (team || []).filter((m) => m.role === "technician").map((m) => ({
+    const loads = (team || []).map((m) => ({
       id: m.id,
       name: m.name,
       open: (open || []).filter((j) => j.assigned_to === m.id).length,
@@ -131,14 +130,13 @@ async function handlePost(req: NextRequest) {
       result: {
         priority,
         technicianId: technician?.id || null,
-        reason: technician ? `${technician.name} has the lightest active workload.` : "No technician is available yet.",
+        reason: technician ? `${technician.name} has the lightest active workload.` : "No team member is available yet.",
       },
       source: "smart-rules",
     });
   }
 
   if (body.action === "daily_summary") {
-    if (member.role === "technician") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     const admin = createAdminClient();
     const { data: jobs, error } = await admin.from("work_orders").select("status,priority,created_at,updated_at");
     if (error) throw error;
