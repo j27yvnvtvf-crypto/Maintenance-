@@ -80,3 +80,71 @@
 body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
 button, input, textarea { font-size: 1rem; }
 ::selection { background: #d0aa5b55; }
+
+/* ---------------------------------------------------------------------------
+   Printable operating formats (Phase 1). The .print-sheet is a US Letter
+   page: on screen it floats as a paper sheet; in print, @page takes over
+   (Letter size, margins, footer with page numbers) and all app chrome and
+   the toolbar disappear.
+--------------------------------------------------------------------------- */
+.print-page { background: #dfe9ee; min-height: 100vh; padding: 1rem 0 2rem; }
+.print-toolbar {
+  max-width: 8.5in; margin: 0 auto 1rem; padding: 0 1rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+}
+.print-back { font-weight: 700; color: #005f82; text-decoration: none; }
+.print-sheet {
+  background: #ffffff; color: #111111; width: 8.5in; max-width: calc(100vw - 1rem);
+  min-height: 11in; margin: 0 auto; padding: 0.55in 0.5in 0.6in;
+  box-shadow: 0 10px 35px rgba(5, 47, 73, .18);
+  font-size: 11.5px; line-height: 1.45;
+}
+.print-header { border-bottom: 3px solid #052f49; padding-bottom: 8px; margin-bottom: 12px; }
+.print-header-main { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.print-property { font-size: 20px; font-weight: 900; letter-spacing: .01em; margin: 0; }
+.print-department { margin: 0; color: #44586a; font-weight: 600; }
+.print-header-meta { text-align: right; color: #44586a; margin: 0; }
+.print-header-meta p { margin: 0; }
+.print-title { font-size: 17px; font-weight: 900; margin: 10px 0 0; text-transform: uppercase; letter-spacing: .03em; }
+.print-meta { margin: 2px 0 0; color: #44586a; font-weight: 600; }
+.print-section { margin-top: 16px; break-inside: avoid-page; }
+.print-section h2 {
+  font-size: 12.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em;
+  border-bottom: 1.5px solid #9db4c0; padding-bottom: 3px; margin: 0 0 8px;
+}
+.print-subsection { margin-bottom: 12px; }
+.print-subsection h3 { font-size: 12px; font-weight: 800; margin: 0 0 5px; color: #052f49; }
+.print-table { width: 100%; border-collapse: collapse; }
+.print-table th, .print-table td {
+  border: 1px solid #8fa5b1; padding: 4px 6px; text-align: left; vertical-align: top;
+}
+.print-table th { background: #e8f0f4; font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; }
+.print-blank-row td { height: 24px; }
+.print-checkbox-cell { text-align: center; font-size: 14px; }
+.print-empty { color: #5b6d7a; font-style: italic; margin: 4px 0; }
+.print-note { background: #f2f6f8; border: 1px solid #c8d6dd; padding: 6px 8px; margin: 0 0 10px; }
+.print-fields { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 10px 0 12px; font-weight: 600; }
+.print-fields-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.print-inline-line { display: inline-block; min-width: 170px; border-bottom: 1px solid #66798a; }
+.print-write-line { border-bottom: 1px solid #9db4c0; height: 24px; }
+.print-signoff { display: flex; flex-wrap: wrap; gap: 24px 40px; margin-top: 28px; }
+.print-signoff-field { display: flex; flex-direction: column; gap: 3px; min-width: 200px; font-weight: 600; color: #33475a; }
+.print-signoff-field .print-line { border-bottom: 1px solid #66798a; height: 22px; }
+
+@page {
+  size: Letter;
+  margin: 0.5in 0.5in 0.65in;
+  @bottom-center {
+    content: "The Darley — Maintenance Department · Page " counter(page) " of " counter(pages);
+    font-size: 9px; color: #66798a;
+  }
+}
+
+@media print {
+  body { background: #ffffff !important; }
+  .print-page { background: #ffffff; padding: 0; min-height: auto; }
+  .print-toolbar { display: none !important; }
+  .print-sheet {
+    box-shadow: none; margin: 0; padding: 0; width: auto; max-width: none; min-height: auto;
+  }
+}
