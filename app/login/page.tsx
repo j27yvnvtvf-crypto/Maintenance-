@@ -40,6 +40,7 @@ export default function LoginPage() {
   const [language, setLanguage] = useState<"en" | "es">("es");
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -75,7 +76,7 @@ export default function LoginPage() {
           email,
           password,
           options: {
-            data: { full_name: name },
+            data: { full_name: name, job_title: jobTitle.trim() },
             emailRedirectTo: `${window.location.origin}/auth/callback`,
           },
         });
@@ -121,10 +122,17 @@ export default function LoginPage() {
           )}
           <form onSubmit={submit} className="space-y-4">
             {mode === "signup" && (
-              <div className="space-y-2">
-                <Label htmlFor="full-name">{es ? "Nombre completo" : "Full name"}</Label>
-                <Input id="full-name" required autoComplete="name" placeholder={es ? "Nombre completo" : "Full name"} value={name} onChange={(event) => setName(event.target.value)} />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="full-name">{es ? "Nombre completo" : "Full name"}</Label>
+                  <Input id="full-name" required autoComplete="name" placeholder={es ? "Nombre completo" : "Full name"} value={name} onChange={(event) => setName(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="job-title">{es ? "Posición / Job Title" : "Position / Job Title"}</Label>
+                  <Input id="job-title" autoComplete="organization-title" placeholder={es ? "Ej.: Técnico de mantenimiento" : "E.g.: Maintenance Technician"} value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
+                  <p className="text-xs text-slate-500">{es ? "Solo informativo: tu cargo no define tus permisos. El acceso lo aprueba el administrador." : "For information only: your title does not set your permissions. Access is approved by the administrator."}</p>
+                </div>
+              </>
             )}
             <div className="space-y-2">
               <Label htmlFor="email">{es ? "Correo electrónico" : "Email address"}</Label>
@@ -159,7 +167,7 @@ export default function LoginPage() {
             </Button>
           </form>
           {message && <p role="alert" className="mt-4 rounded-xl bg-slate-100 p-3 text-sm text-slate-700">{message}</p>}
-          <p className="mt-6 text-center text-xs leading-5 text-slate-500">{es ? "Después de registrarte, selecciona tu rol. El supervisor aprobará el acceso." : "After registering, select your role. The supervisor will approve access."}</p>
+          <p className="mt-6 text-center text-xs leading-5 text-slate-500">{es ? "Después de registrarte, tu cuenta queda pendiente de aprobación. El administrador debe aprobar tu acceso antes de que puedas entrar." : "After registering, your account stays pending approval. The administrator must approve your access before you can enter."}</p>
         </CardContent>
       </Card>
     </main>

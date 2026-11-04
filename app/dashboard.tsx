@@ -22,11 +22,14 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 
 type Language = "en" | "es";
-type Role = "manager" | "service_supervisor" | "technician";
-type ApprovalStatus = "unregistered" | "pending" | "approved";
+type ApprovalStatus = "unregistered" | "pending" | "approved" | "rejected" | "suspended" | "revoked";
 type Member = {
-  id: number; name: string; email: string; role: Role; requestedRole?: Role | null;
+  id: number; name: string; email: string; jobTitle?: string | null; isAdmin: boolean;
   approvalStatus: ApprovalStatus; active: boolean; language: Language; userId?: string | null;
+};
+type AuditEntry = {
+  id: number; actor_email: string; action: string; target_email: string | null;
+  detail?: Record<string, unknown>; created_at: string;
 };
 type Job = {
   id: number; title: string; description: string; area: string; category: string;
@@ -34,54 +37,71 @@ type Job = {
   dueDate: string | null; completionComment: string | null; residentNote: string | null;
   updatedAt: string;
 };
-type Data = { me: Member; team: Member[]; jobs: Job[]; registrationRequired: boolean };
+type Data = {
+  me: Member; team: Member[]; jobs: Job[]; pendingTeam: Member[];
+  auditLog: AuditEntry[]; accessState: string;
+};
 
 const copy = {
   en: {
     overview: "Overview", work: "Work Orders", team: "Team", ai: "AI Assistant",
-    supervisor: "Supervisor Control", subtitle: "Assign, track, and close maintenance work",
+    adminPanel: "Administration", subtitle: "Assign, track, and close maintenance work",
     newJob: "Assign Work", active: "Active", completed: "Completed", urgent: "Urgent",
-    technicians: "Technicians", today: "Today", noJobs: "No work orders yet.",
+    technicians: "Team", today: "Today", noJobs: "No work orders yet.",
     assigned: "Assigned to", unassigned: "Unassigned", status: "Status", priority: "Priority",
-    summary: "Generate daily summary", addMember: "Add technician", title: "Work title",
+    summary: "Generate daily summary", addMember: "Add team member", title: "Work title",
     details: "Instructions / details", area: "Apartment or area", category: "Category",
-    technician: "Technician", due: "Due date", create: "Create work order",
+    technician: "Team member", due: "Due date", create: "Create work order",
     recommend: "AI recommend", name: "Name", email: "Email", language: "Language",
     add: "Add member", aiTitle: "AI maintenance assistant",
     aiHint: "Create a professional maintenance closure and resident note.",
     whatDone: "What was done?", result: "Result / current condition",
     generate: "Generate comments", translate: "Translate", save: "Save & complete",
-    all: "All", myWork: "My Work", managerView: "Manager view", dailyWork: "Daily work",
-    selectRole: "Select your role", roleIntro: "Choose the role you need. A Service Supervisor will approve the request.",
-    requestAccess: "Request access", pendingTitle: "Access request pending",
-    pendingText: "A Service Supervisor must approve your role before you can enter.",
-    managerRole: "Manager", managerRoleInfo: "Read-only access to all work, team, and performance data.",
-    supervisorRole: "Service Supervisor", supervisorRoleInfo: "Full administrative access to work orders, assignments, and team settings.",
-    technicianRole: "Technician", technicianRoleInfo: "View daily work, update status, close work orders, and add comments.",
-    approve: "Approve", requested: "Requested",
+    all: "All", myWork: "My Work", dailyWork: "Daily work",
+    jobTitle: "Position / Job Title", adminBadge: "Administrator",
+    requestIntro: "Write your position or job title. It is for information only and never changes your permissions — every access request is reviewed by the administrator.",
+    requestAccess: "Send access request", updateRequest: "Update my request",
+    pendingTitle: "Access request pending",
+    pendingText: "Your request was sent. The administrator must approve your access before you can enter the app.",
+    rejectedTitle: "Access not approved",
+    rejectedText: "Your access request was not approved. You can update your information and send a new request, or contact the administrator.",
+    suspendedTitle: "Account suspended",
+    suspendedText: "Your access has been suspended by the administrator. Contact the administrator if you believe this is a mistake.",
+    revokedTitle: "Access revoked",
+    revokedText: "Your access has been revoked. Contact the administrator if you need a new account.",
+    approve: "Approve", reject: "Reject", suspend: "Suspend", revoke: "Revoke access",
+    accessRequests: "Access requests & inactive accounts", auditTitle: "Administrative history",
+    signOut: "Sign out", teamMember: "Team member",
   },
   es: {
     overview: "Resumen", work: "Órdenes", team: "Equipo", ai: "Asistente IA",
-    supervisor: "Control del supervisor", subtitle: "Asigna, controla y completa trabajos de mantenimiento",
+    adminPanel: "Administración", subtitle: "Asigna, controla y completa trabajos de mantenimiento",
     newJob: "Asignar trabajo", active: "Activos", completed: "Completados", urgent: "Urgentes",
-    technicians: "Técnicos", today: "Hoy", noJobs: "Todavía no hay órdenes de trabajo.",
+    technicians: "Equipo", today: "Hoy", noJobs: "Todavía no hay órdenes de trabajo.",
     assigned: "Asignado a", unassigned: "Sin asignar", status: "Estado", priority: "Prioridad",
-    summary: "Crear resumen diario", addMember: "Agregar técnico", title: "Título del trabajo",
+    summary: "Crear resumen diario", addMember: "Agregar miembro", title: "Título del trabajo",
     details: "Instrucciones / detalles", area: "Apartamento o área", category: "Categoría",
-    technician: "Técnico", due: "Fecha límite", create: "Crear orden",
+    technician: "Miembro del equipo", due: "Fecha límite", create: "Crear orden",
     recommend: "Recomendar con IA", name: "Nombre", email: "Correo", language: "Idioma",
     add: "Agregar miembro", aiTitle: "Asistente de mantenimiento con IA",
     aiHint: "Crea un cierre profesional de mantenimiento y una nota para el residente.",
     whatDone: "¿Qué se hizo?", result: "Resultado / condición actual",
     generate: "Crear comentarios", translate: "Traducir", save: "Guardar y completar",
-    all: "Todos", myWork: "Mis trabajos", managerView: "Vista del manager", dailyWork: "Trabajo diario",
-    selectRole: "Selecciona tu rol", roleIntro: "Elige el rol que necesitas. Un Service Supervisor aprobará la solicitud.",
-    requestAccess: "Solicitar acceso", pendingTitle: "Solicitud pendiente",
-    pendingText: "Un Service Supervisor debe aprobar tu rol antes de que puedas entrar.",
-    managerRole: "Manager", managerRoleInfo: "Acceso de solo lectura a todos los trabajos, el equipo y los datos.",
-    supervisorRole: "Service Supervisor", supervisorRoleInfo: "Acceso administrativo completo a órdenes, asignaciones y equipo.",
-    technicianRole: "Técnico", technicianRoleInfo: "Puede ver el trabajo diario, cambiar estados, cerrar órdenes y dejar comentarios.",
-    approve: "Aprobar", requested: "Solicitado",
+    all: "Todos", myWork: "Mis trabajos", dailyWork: "Trabajo diario",
+    jobTitle: "Posición / Job Title", adminBadge: "Administrador",
+    requestIntro: "Escribe tu posición o cargo. Es solo informativo y nunca cambia tus permisos: el administrador revisa cada solicitud de acceso.",
+    requestAccess: "Enviar solicitud de acceso", updateRequest: "Actualizar mi solicitud",
+    pendingTitle: "Solicitud de acceso pendiente",
+    pendingText: "Tu solicitud fue enviada. El administrador debe aprobar tu acceso antes de que puedas entrar a la app.",
+    rejectedTitle: "Acceso no aprobado",
+    rejectedText: "Tu solicitud de acceso no fue aprobada. Puedes actualizar tu información y enviar una nueva solicitud, o contactar al administrador.",
+    suspendedTitle: "Cuenta suspendida",
+    suspendedText: "Tu acceso fue suspendido por el administrador. Contacta al administrador si crees que es un error.",
+    revokedTitle: "Acceso revocado",
+    revokedText: "Tu acceso fue revocado. Contacta al administrador si necesitas una cuenta nueva.",
+    approve: "Aprobar", reject: "Rechazar", suspend: "Suspender", revoke: "Revocar acceso",
+    accessRequests: "Solicitudes de acceso y cuentas inactivas", auditTitle: "Historial administrativo",
+    signOut: "Salir", teamMember: "Miembro del equipo",
   },
 };
 
@@ -112,14 +132,15 @@ export function Dashboard() {
     title: "", description: "", area: "", category: "General Maintenance",
     priority: "medium", assignedTo: "", dueDate: "",
   });
-  const [member, setMember] = useState({ name: "", email: "", language: "en", role: "technician" });
+  const [member, setMember] = useState({ name: "", email: "", language: "en", jobTitle: "" });
   const [closure, setClosure] = useState({
     jobId: "", whatDone: "", result: "", maintenanceComment: "", residentNote: "",
   });
   const lang: Language = data?.me.language || "en";
   const t = copy[lang];
-  const supervisor = data?.me.role === "service_supervisor";
-  const manager = data?.me.role === "manager";
+  // Access model v2: approval is the only operational gate and it is the
+  // same for everyone; `isAdmin` gates administration only.
+  const admin = data?.me.isAdmin === true;
 
   const load = useCallback(async () => {
     try { setData(await api("/api/dashboard")); }
@@ -127,10 +148,8 @@ export function Dashboard() {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  const technicians = useMemo(
-    () => data?.team.filter((m) => m.role === "technician") || [],
-    [data],
-  );
+  // Every approved team member can be assigned work (no role tiers).
+  const technicians = useMemo(() => data?.team || [], [data]);
   const jobs = data?.jobs || [];
   const stats = {
     active: jobs.filter((j) => j.status !== "completed").length,
@@ -164,7 +183,7 @@ export function Dashboard() {
     setBusy(true);
     try {
       await api("/api/dashboard", { action: "add_member", ...member });
-      setMember({ name: "", email: "", language: "en", role: "technician" });
+      setMember({ name: "", email: "", language: "en", jobTitle: "" });
       setMemberOpen(false);
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
@@ -176,26 +195,18 @@ export function Dashboard() {
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     await load();
   }
-  async function requestRole(role: Role) {
+  async function requestAccess(jobTitle: string) {
     setBusy(true);
     try {
-      await api("/api/dashboard", { action: "request_role", role });
+      await api("/api/dashboard", { action: "request_access", jobTitle });
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
-  async function approveMember(id: number, role: Role) {
+  async function memberAction(action: string, id: number) {
     setBusy(true);
     try {
-      await api("/api/dashboard", { action: "approve_member", id, role });
-      await load();
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
-  }
-  async function changeMemberRole(id: number, role: Role) {
-    setBusy(true);
-    try {
-      await api("/api/dashboard", { action: "change_member_role", id, role });
+      await api("/api/dashboard", { action, id });
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
@@ -275,12 +286,12 @@ export function Dashboard() {
 
   if (data.me.approvalStatus !== "approved" || !data.me.active) {
     return (
-      <RoleAccess
+      <AccessScreen
         member={data.me}
         lang={lang}
         t={t}
         busy={busy}
-        requestRole={requestRole}
+        requestAccess={requestAccess}
         setLanguage={changeLanguage}
       />
     );
@@ -290,22 +301,20 @@ export function Dashboard() {
     <main className="min-h-screen bg-[#f1f6f9] pb-24 text-slate-900 lg:pb-8">
       <Header data={data} lang={lang} setLanguage={changeLanguage} t={t} />
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[230px_1fr] lg:px-8">
-        <SideNav tab={tab} setTab={setTab} t={t} name={data.me.name} role={data.me.role} />
+        <SideNav tab={tab} setTab={setTab} t={t} name={data.me.name} />
         <section className="min-w-0">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-bold uppercase tracking-[.12em] text-[#007a9f]">
-                {supervisor ? t.supervisor : manager ? t.managerView : t.dailyWork}
+                {admin ? t.adminPanel : t.dailyWork}
               </p>
               <h2 className="text-2xl font-black">{tab === "overview" ? t.overview : tab === "work" ? t.work : tab === "team" ? t.team : t.ai}</h2>
             </div>
-            {supervisor && (
-              <NewJobDialog
-                open={jobOpen} setOpen={setJobOpen} t={t} form={form}
-                setForm={setForm} technicians={technicians} busy={busy}
-                createJob={createJob} recommend={recommend}
-              />
-            )}
+            <NewJobDialog
+              open={jobOpen} setOpen={setJobOpen} t={t} form={form}
+              setForm={setForm} technicians={technicians} busy={busy}
+              createJob={createJob} recommend={recommend}
+            />
           </div>
 
           {(tab === "overview" || tab === "work") && (
@@ -322,7 +331,7 @@ export function Dashboard() {
               </Card>
               <JobList
                 jobs={jobs} lang={lang} t={t} updateJob={updateJob}
-                canUpdate={!manager}
+                canUpdate
                 openAI={(id: number) => {
                   setClosure({ jobId: String(id), whatDone: "", result: "", maintenanceComment: "", residentNote: "" });
                   setAiOpen(true);
@@ -333,20 +342,20 @@ export function Dashboard() {
 
           {tab === "team" && (
             <TeamPanel
-              data={data} t={t} lang={lang} supervisor={supervisor}
+              data={data} t={t} lang={lang} admin={admin}
               open={memberOpen} setOpen={setMemberOpen} member={member}
               setMember={setMember} addMember={addMember} busy={busy}
-              approveMember={approveMember} changeMemberRole={changeMemberRole}
+              memberAction={memberAction}
             />
           )}
 
-          {tab === "ai" && !manager && (
-            <AIPanel t={t} summary={summary} busy={busy} openAI={() => setAiOpen(true)} dailySummary={dailySummary} canSummarize={supervisor} />
+          {tab === "ai" && (
+            <AIPanel t={t} summary={summary} busy={busy} openAI={() => setAiOpen(true)} dailySummary={dailySummary} canSummarize />
           )}
         </section>
       </div>
 
-      <MobileNav tab={tab} setTab={setTab} t={t} role={data.me.role} />
+      <MobileNav tab={tab} setTab={setTab} t={t} />
       <AIClosureDialog
         open={aiOpen} setOpen={setAiOpen} t={t} jobs={jobs}
         closure={closure} setClosure={setClosure} busy={busy}
@@ -361,53 +370,67 @@ export function Dashboard() {
   );
 }
 
-function RoleAccess({ member, lang, t, busy, requestRole, setLanguage }: any) {
-  const options: Array<[Role, string, string]> = [
-    ["manager", t.managerRole, t.managerRoleInfo],
-    ["service_supervisor", t.supervisorRole, t.supervisorRoleInfo],
-    ["technician", t.technicianRole, t.technicianRoleInfo],
-  ];
+function AccessScreen({ member, lang, t, busy, requestAccess, setLanguage }: any) {
+  const [jobTitle, setJobTitle] = useState(member.jobTitle || "");
+  const status = member.approvalStatus as ApprovalStatus;
+  // Suspended and revoked accounts cannot reactivate themselves; only the
+  // administrator can approve them again.
+  const canRequest = status === "unregistered" || status === "pending" || status === "rejected";
+  const messages: Record<string, [string, string]> = {
+    pending: [t.pendingTitle, t.pendingText],
+    unregistered: [t.pendingTitle, t.pendingText],
+    rejected: [t.rejectedTitle, t.rejectedText],
+    suspended: [t.suspendedTitle, t.suspendedText],
+    revoked: [t.revokedTitle, t.revokedText],
+  };
+  const [title, text] = messages[status] || messages.pending;
   return (
     <main className="min-h-screen bg-[#f1f6f9] text-slate-900">
       <header className="bg-gradient-to-r from-[#003a5d] to-[#007a9f] px-5 py-5 text-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
           <div className="flex items-center gap-3"><Waves /><span className="text-lg font-extrabold">Maintenance</span></div>
-          <Select value={lang} onValueChange={setLanguage}>
-            <SelectTrigger className="w-[112px] border-white/25 bg-white/10 text-white"><Languages /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="en">English</SelectItem><SelectItem value="es">Español</SelectItem></SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select value={lang} onValueChange={setLanguage}>
+              <SelectTrigger className="w-[112px] border-white/25 bg-white/10 text-white"><Languages /><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="en">English</SelectItem><SelectItem value="es">Español</SelectItem></SelectContent>
+            </Select>
+            <form action="/api/auth/signout" method="post">
+              <Button type="submit" size="icon" variant="ghost" title={t.signOut} className="text-white hover:bg-white/15 hover:text-white">
+                <LogOut className="size-5" />
+              </Button>
+            </form>
+          </div>
         </div>
       </header>
       <section className="mx-auto max-w-4xl px-4 py-10">
-        {member.approvalStatus === "unregistered" ? (
-          <>
-            <div className="mb-6 text-center"><h1 className="text-3xl font-black">{t.selectRole}</h1><p className="mt-2 text-slate-600">{t.roleIntro}</p></div>
-            <div className="grid gap-4 md:grid-cols-3">
-              {options.map(([role, label, description]) => (
-                <Card key={role} className="rounded-3xl border-0 shadow-sm">
-                  <CardContent className="flex h-full flex-col p-6">
-                    <Badge className="mb-4 w-fit bg-[#d0aa5b] text-[#143449]">{label}</Badge>
-                    <p className="mb-6 flex-1 leading-7 text-slate-600">{description}</p>
-                    <Button onClick={() => requestRole(role)} disabled={busy}>{t.requestAccess}</Button>
-                  </CardContent>
-                </Card>
-              ))}
+        <Card className="mx-auto max-w-xl rounded-3xl border-0 shadow-sm">
+          <CardContent className="p-10">
+            <div className="text-center">
+              <RefreshCw className="mx-auto mb-5 size-10 text-[#007a9f]" />
+              <h1 className="text-2xl font-black">{title}</h1>
+              <p className="mt-3 text-slate-600">{text}</p>
+              <p className="mt-4 text-sm font-semibold text-slate-500">{member.name} · {member.email}</p>
             </div>
-          </>
-        ) : (
-          <Card className="mx-auto max-w-xl rounded-3xl border-0 text-center shadow-sm">
-            <CardContent className="p-10"><RefreshCw className="mx-auto mb-5 size-10 text-[#007a9f]" /><h1 className="text-2xl font-black">{t.pendingTitle}</h1><p className="mt-3 text-slate-600">{t.pendingText}</p><Badge className="mt-5">{roleLabel(member.requestedRole, lang)}</Badge></CardContent>
-          </Card>
-        )}
+            {canRequest && (
+              <div className="mt-8 space-y-3 text-left">
+                <p className="text-sm leading-6 text-slate-600">{t.requestIntro}</p>
+                <label className="block text-sm font-bold" htmlFor="access-job-title">{t.jobTitle}</label>
+                <Input
+                  id="access-job-title"
+                  value={jobTitle}
+                  onChange={(event) => setJobTitle(event.target.value)}
+                  placeholder={lang === "es" ? "Ej.: Técnico de mantenimiento" : "E.g.: Maintenance Technician"}
+                />
+                <Button className="w-full" onClick={() => requestAccess(jobTitle)} disabled={busy}>
+                  {status === "pending" ? t.updateRequest : t.requestAccess}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </section>
     </main>
   );
-}
-
-function roleLabel(role: Role | null | undefined, lang: Language) {
-  if (role === "manager") return "Manager";
-  if (role === "service_supervisor") return "Service Supervisor";
-  return lang === "es" ? "Técnico" : "Technician";
 }
 
 function Header({ data, lang, setLanguage, t }: any) {
@@ -429,7 +452,7 @@ function Header({ data, lang, setLanguage, t }: any) {
             <SelectContent><SelectItem value="en">English</SelectItem><SelectItem value="es">Español</SelectItem></SelectContent>
           </Select>
           <Badge className="hidden bg-[#d0aa5b] text-[#092f46] sm:inline-flex">
-            {roleLabel(data.me.role, lang)}
+            {data.me.isAdmin ? t.adminBadge : data.me.jobTitle || t.teamMember}
           </Badge>
           <form action="/api/auth/signout" method="post">
             <Button type="submit" size="icon" variant="ghost" title={lang === "es" ? "Salir" : "Sign out"} className="text-white hover:bg-white/15 hover:text-white">
@@ -442,8 +465,8 @@ function Header({ data, lang, setLanguage, t }: any) {
   );
 }
 
-function SideNav({ tab, setTab, t, name, role }: any) {
-  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["team", Users, t.team], ...(role === "manager" ? [] : [["ai", Bot, t.ai]])];
+function SideNav({ tab, setTab, t, name }: any) {
+  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["team", Users, t.team], ["ai", Bot, t.ai]];
   return (
     <aside className="hidden h-fit rounded-3xl bg-[#052f49] p-3 text-white shadow-xl lg:block">
       <div className="px-3 pb-4 pt-2"><p className="text-xs uppercase tracking-[.18em] text-cyan-100/60">{t.today}</p><p className="mt-1 font-bold">{name}</p></div>
@@ -541,19 +564,37 @@ function JobList({ jobs, lang, t, updateJob, openAI, canUpdate }: any) {
   );
 }
 
-function TeamPanel({ data, t, lang, supervisor, open, setOpen, member, setMember, addMember, busy, approveMember, changeMemberRole }: any) {
-  const pending = data.team.filter((person: Member) => person.approvalStatus === "pending");
-  const approved = data.team.filter((person: Member) => person.approvalStatus === "approved" && person.active);
+function TeamPanel({ data, t, lang, admin, open, setOpen, member, setMember, addMember, busy, memberAction }: any) {
+  const pending = (data.pendingTeam || []) as Member[];
+  const approved = (data.team || []) as Member[];
+  const confirmText = lang === "es" ? "¿Seguro? Esta acción queda registrada." : "Are you sure? This action is recorded.";
   return (
     <div className="space-y-4">
-      {supervisor && pending.length > 0 && (
+      {admin && pending.length > 0 && (
         <Card className="rounded-3xl border border-amber-200 bg-amber-50 shadow-sm">
-          <CardHeader><CardTitle>{t.pendingTitle}</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t.accessRequests}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {pending.map((person: Member) => (
               <div key={person.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white p-4">
-                <div><p className="font-bold">{person.name}</p><p className="text-sm text-slate-500">{person.email}</p><p className="mt-1 text-sm font-semibold">{t.requested}: {roleLabel(person.requestedRole, lang)}</p></div>
-                <Button onClick={() => approveMember(person.id, person.requestedRole || "technician")} disabled={busy}><CheckCircle2 />{t.approve}</Button>
+                <div>
+                  <p className="font-bold">{person.name}</p>
+                  <p className="text-sm text-slate-500">{person.email}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {person.jobTitle && <Badge variant="outline">{person.jobTitle}</Badge>}
+                    <Badge className="bg-amber-500 text-white">{person.approvalStatus}</Badge>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {person.approvalStatus !== "revoked" && (
+                    <Button onClick={() => memberAction("approve_member", person.id)} disabled={busy}><CheckCircle2 />{t.approve}</Button>
+                  )}
+                  {(person.approvalStatus === "pending" || person.approvalStatus === "unregistered") && (
+                    <Button variant="outline" onClick={() => memberAction("reject_member", person.id)} disabled={busy}>{t.reject}</Button>
+                  )}
+                  {person.approvalStatus === "suspended" && (
+                    <Button variant="destructive" onClick={() => { if (window.confirm(confirmText)) memberAction("revoke_member", person.id); }} disabled={busy}>{t.revoke}</Button>
+                  )}
+                </div>
               </div>
             ))}
           </CardContent>
@@ -562,20 +603,17 @@ function TeamPanel({ data, t, lang, supervisor, open, setOpen, member, setMember
       <Card className="rounded-3xl border-0 shadow-sm">
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle>{t.team}</CardTitle>
-          {supervisor && (
+          {admin && (
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild><Button><UserRoundPlus />{t.addMember}</Button></DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>{t.addMember}</DialogTitle>
-                  <DialogDescription>{lang === "es" ? "La persona recibirá su rol cuando entre con este correo." : "The person receives this role when they sign in with this email."}</DialogDescription>
+                  <DialogDescription>{lang === "es" ? "La cuenta se crea pendiente: la persona se registra con este correo y tú apruebas su acceso." : "The account is created pending: the person signs up with this email and you approve their access."}</DialogDescription>
                 </DialogHeader>
                 <Input placeholder={t.name} value={member.name} onChange={(e) => setMember({ ...member, name: e.target.value })} />
                 <Input type="email" placeholder={t.email} value={member.email} onChange={(e) => setMember({ ...member, email: e.target.value })} />
-                <Select value={member.role} onValueChange={(value) => setMember({ ...member, role: value })}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="manager">Manager</SelectItem><SelectItem value="service_supervisor">Service Supervisor</SelectItem><SelectItem value="technician">{t.technicianRole}</SelectItem></SelectContent>
-                </Select>
+                <Input placeholder={t.jobTitle} value={member.jobTitle} onChange={(e) => setMember({ ...member, jobTitle: e.target.value })} />
                 <Select value={member.language} onValueChange={(value) => setMember({ ...member, language: value })}>
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="en">English</SelectItem><SelectItem value="es">Español</SelectItem></SelectContent>
@@ -589,19 +627,31 @@ function TeamPanel({ data, t, lang, supervisor, open, setOpen, member, setMember
           {approved.map((person: Member) => (
             <div key={person.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 p-4">
               <div><p className="font-bold">{person.name}</p><p className="text-sm text-slate-500">{person.email}</p></div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline">{person.language.toUpperCase()}</Badge>
-                {supervisor && person.id !== data.me.id ? (
-                  <Select value={person.role} onValueChange={(role) => changeMemberRole(person.id, role)}>
-                    <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="manager">Manager</SelectItem><SelectItem value="service_supervisor">Service Supervisor</SelectItem><SelectItem value="technician">{t.technicianRole}</SelectItem></SelectContent>
-                  </Select>
-                ) : <Badge>{roleLabel(person.role, lang)}</Badge>}
+                {person.jobTitle && <Badge variant="outline">{person.jobTitle}</Badge>}
+                {person.isAdmin && <Badge className="bg-[#d0aa5b] text-[#092f46]">{t.adminBadge}</Badge>}
+                {admin && person.id !== data.me.id && (
+                  <Button variant="outline" size="sm" onClick={() => { if (window.confirm(confirmText)) memberAction("suspend_member", person.id); }} disabled={busy}>{t.suspend}</Button>
+                )}
               </div>
             </div>
           ))}
         </CardContent>
       </Card>
+      {admin && (data.auditLog || []).length > 0 && (
+        <Card className="rounded-3xl border-0 shadow-sm">
+          <CardHeader><CardTitle>{t.auditTitle}</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {(data.auditLog as AuditEntry[]).map((entry) => (
+              <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-slate-50 p-3 text-sm">
+                <span><strong>{entry.action}</strong> — {entry.actor_email} → {entry.target_email || "—"}</span>
+                <span className="text-slate-500">{new Date(entry.created_at).toLocaleString(lang === "es" ? "es-US" : "en-US")}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -624,10 +674,10 @@ function AIPanel({ t, summary, busy, openAI, dailySummary, canSummarize }: any) 
   );
 }
 
-function MobileNav({ tab, setTab, t, role }: any) {
-  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["team", Users, t.team], ...(role === "manager" ? [] : [["ai", Bot, t.ai]])];
+function MobileNav({ tab, setTab, t }: any) {
+  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["team", Users, t.team], ["ai", Bot, t.ai]];
   return (
-    <nav className={`fixed inset-x-0 bottom-0 z-40 grid ${role === "manager" ? "grid-cols-3" : "grid-cols-4"} border-t bg-white px-2 py-2 shadow-[0_-8px_25px_rgba(15,23,42,.08)] lg:hidden`}>
+    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-white px-2 py-2 shadow-[0_-8px_25px_rgba(15,23,42,.08)] lg:hidden">
       {items.map(([id, Icon, label]: any) => (
         <button key={id} onClick={() => setTab(id)} className={`grid justify-items-center gap-1 rounded-xl py-2 text-xs font-bold ${tab === id ? "bg-sky-50 text-[#005f82]" : "text-slate-500"}`}>
           <Icon className="size-5" />{label}
