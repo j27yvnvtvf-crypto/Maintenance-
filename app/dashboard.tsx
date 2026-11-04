@@ -21,12 +21,15 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { isValidPhone } from "@/lib/access-rules";
 
 type Language = "en" | "es";
 type ApprovalStatus = "unregistered" | "pending" | "approved" | "rejected" | "suspended" | "revoked";
 type Member = {
   id: number; name: string; email: string; jobTitle?: string | null; isAdmin: boolean;
   approvalStatus: ApprovalStatus; active: boolean; language: Language; userId?: string | null;
+  /** Personal phone. Present only on `me` (own data) and on admin-only pendingTeam entries; never on the team list. */
+  phone?: string | null;
 };
 type AuditEntry = {
   id: number; actor_email: string; action: string; target_email: string | null;
@@ -60,7 +63,9 @@ const copy = {
     generate: "Generate comments", translate: "Translate", save: "Save & complete",
     all: "All", myWork: "My Work", dailyWork: "Daily work",
     jobTitle: "Position / Job Title", adminBadge: "Administrator",
-    requestIntro: "Write your position or job title. It is for information only and never changes your permissions — every access request is reviewed by the administrator.",
+    fullName: "Full name", phone: "Personal phone",
+    phoneHint: "Used only to verify your identity. Only the administrator can see it.",
+    requestIntro: "Enter your details so the administrator can verify who you are before approving your access. Your position or job title is for information only and never changes your permissions.",
     requestAccess: "Send access request", updateRequest: "Update my request",
     pendingTitle: "Access request pending",
     pendingText: "Your request was sent. The administrator must approve your access before you can enter the app.",
@@ -90,7 +95,9 @@ const copy = {
     generate: "Crear comentarios", translate: "Traducir", save: "Guardar y completar",
     all: "Todos", myWork: "Mis trabajos", dailyWork: "Trabajo diario",
     jobTitle: "Posición / Job Title", adminBadge: "Administrador",
-    requestIntro: "Escribe tu posición o cargo. Es solo informativo y nunca cambia tus permisos: el administrador revisa cada solicitud de acceso.",
+    fullName: "Nombre completo", phone: "Teléfono personal",
+    phoneHint: "Solo se usa para verificar tu identidad. Solo el administrador puede verlo.",
+    requestIntro: "Escribe tus datos para que el administrador pueda verificar quién eres antes de aprobar tu acceso. Tu posición o cargo es solo informativo y nunca cambia tus permisos.",
     requestAccess: "Enviar solicitud de acceso", updateRequest: "Actualizar mi solicitud",
     pendingTitle: "Solicitud de acceso pendiente",
     pendingText: "Tu solicitud fue enviada. El administrador debe aprobar tu acceso antes de que puedas entrar a la app.",
@@ -196,10 +203,10 @@ export function Dashboard() {
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     await load();
   }
-  async function requestAccess(jobTitle: string) {
+  async function requestAccess(details: { name: string; phone: string; jobTitle: string }) {
     setBusy(true);
     try {
-      await api("/api/dashboard", { action: "request_access", jobTitle });
+      await api("/api/dashboard", { action: "request_access", ...details });
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
@@ -376,6 +383,8 @@ export function Dashboard() {
 }
 
 function AccessScreen({ member, lang, t, busy, requestAccess, setLanguage }: any) {
+  const [fullName, setFullName] = useState(member.name || "");
+  const [phone, setPhone] = useState(member.phone || "");
   const [jobTitle, setJobTitle] = useState(member.jobTitle || "");
   const status = member.approvalStatus as ApprovalStatus;
   // Suspended and revoked accounts cannot reactivate themselves; only the
@@ -419,6 +428,24 @@ function AccessScreen({ member, lang, t, busy, requestAccess, setLanguage }: any
             {canRequest && (
               <div className="mt-8 space-y-3 text-left">
                 <p className="text-sm leading-6 text-slate-600">{t.requestIntro}</p>
+                <label className="block text-sm font-bold" htmlFor="access-full-name">{t.fullName}</label>
+                <Input
+                  id="access-full-name"
+                  autoComplete="name"
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  placeholder={lang === "es" ? "Tu nombre completo" : "Your full name"}
+                />
+                <label className="block text-sm font-bold" htmlFor="access-phone">{t.phone}</label>
+                <Input
+                  id="access-phone"
+                  type="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder={lang === "es" ? "Ej.: +1 352 555 1234" : "E.g.: +1 352 555 1234"}
+                />
+                <p className="text-xs text-slate-500">{t.phoneHint}</p>
                 <label className="block text-sm font-bold" htmlFor="access-job-title">{t.jobTitle}</label>
                 <Input
                   id="access-job-title"
@@ -426,7 +453,11 @@ function AccessScreen({ member, lang, t, busy, requestAccess, setLanguage }: any
                   onChange={(event) => setJobTitle(event.target.value)}
                   placeholder={lang === "es" ? "Ej.: Técnico de mantenimiento" : "E.g.: Maintenance Technician"}
                 />
-                <Button className="w-full" onClick={() => requestAccess(jobTitle)} disabled={busy}>
+                <Button
+                  className="w-full"
+                  onClick={() => requestAccess({ name: fullName, phone, jobTitle })}
+                  disabled={busy || !fullName.trim() || !isValidPhone(phone)}
+                >
                   {status === "pending" ? t.updateRequest : t.requestAccess}
                 </Button>
               </div>
@@ -584,6 +615,7 @@ function TeamPanel({ data, t, lang, admin, open, setOpen, member, setMember, add
                 <div>
                   <p className="font-bold">{person.name}</p>
                   <p className="text-sm text-slate-500">{person.email}</p>
+                  {person.phone && <p className="text-sm text-slate-500">{t.phone}: {person.phone}</p>}
                   <div className="mt-2 flex flex-wrap gap-2">
                     {person.jobTitle && <Badge variant="outline">{person.jobTitle}</Badge>}
                     <Badge className="bg-amber-500 text-white">{person.approvalStatus}</Badge>
