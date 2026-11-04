@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import {
-  getCurrentMember, isAdmin, isApproved, memberForClient,
+  getCurrentMember, isAdmin, isApproved, memberForClient, memberForClientWithPhone,
   type MemberRow,
 } from "@/lib/access";
-import { canAdminActOn, canRequestAccess } from "@/lib/access-rules";
+import { canAdminActOn, canRequestAccess, isValidPhone, normalizePhone } from "@/lib/access-rules";
 
 const priorities = ["low", "medium", "high", "emergency"];
 const statuses = ["open", "assigned", "in_progress", "on_hold", "completed"];
@@ -72,8 +72,10 @@ export async function GET() {
       // Bootstrap payload ONLY: the account's own state so the UI can show
       // the pending / rejected / suspended screen. No team, no work orders,
       // no property data of any kind is included for unapproved accounts.
+      // `me` carries the owner's own phone so they can review and correct
+      // their request data — it is their own personal data, nobody else's.
       return NextResponse.json({
-        me: memberForClient(me),
+        me: memberForClientWithPhone(me),
         team: [],
         jobs: [],
         pendingTeam: [],
@@ -109,10 +111,14 @@ export async function GET() {
       auditLog = logRows || [];
     }
     return NextResponse.json({
-      me: memberForClient(me),
+      me: memberForClientWithPhone(me),
+      // Team list: the phone-free payload. No non-administrator ever
+      // receives another member's personal phone from this endpoint.
       team: team.map(memberForClient),
       jobs,
-      pendingTeam: pendingTeam.map(memberForClient),
+      // Administrator-only section: pending/inactive accounts WITH their
+      // verification phone, so the administrator can confirm identities.
+      pendingTeam: pendingTeam.map(memberForClientWithPhone),
       auditLog,
       accessState: "approved",
     });
@@ -133,19 +139,38 @@ export async function POST(req: NextRequest) {
 
     // --- Actions available before approval (identity and request only) ---
     if (body.action === "request_access") {
-      // Submits or updates the access request: a free-text job title that is
-      // informational only. It never grants permissions, whatever it says.
+      // Submits or updates the access request with the identity data the
+      // administrator uses to verify the person: full name, personal phone
+      // and a free-text job title. None of it grants permissions: the job
+      // title is informational only, whatever it says, and the phone is a
+      // verification datum visible only to the administrator.
+      const name = String(body.name || "").trim().slice(0, 120);
       const jobTitle = String(body.jobTitle || "").trim().slice(0, 120);
       const update: Record<string, unknown> = { job_title: jobTitle || null };
       if (canRequestAccess(me)) {
+        // A (re)submitted request must carry complete, valid identity data:
+        // the registration name and a reachable personal phone.
+        if (!name) return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+        if (!isValidPhone(body.phone)) {
+          return NextResponse.json({ error: "Enter a valid personal phone number (7 to 15 digits)" }, { status: 400 });
+        }
+        update.name = name;
+        update.phone = normalizePhone(body.phone);
         update.approval_status = "pending";
         update.active = false;
       } else if (!isApproved(me)) {
-        // Suspended / revoked accounts may update their title but cannot
+        // Suspended / revoked accounts may correct their data but cannot
         // reactivate themselves; only the administrator approves again.
         // (Approved accounts need no request and are left untouched.)
         if (me.approval_status !== "suspended" && me.approval_status !== "revoked") {
           return NextResponse.json({ error: "Access request is not available for this account state" }, { status: 400 });
+        }
+        if (name) update.name = name;
+        if (body.phone !== undefined && String(body.phone).trim() !== "") {
+          if (!isValidPhone(body.phone)) {
+            return NextResponse.json({ error: "Enter a valid personal phone number (7 to 15 digits)" }, { status: 400 });
+          }
+          update.phone = normalizePhone(body.phone);
         }
       }
       const { error } = await admin.from("members").update(update).eq("id", me.id);
