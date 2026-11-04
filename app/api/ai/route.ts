@@ -16,17 +16,28 @@ function extractText(payload: any) {
 async function askModel(prompt: string) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-5-mini",
-      input: prompt,
-      store: false,
-    }),
-  });
-  if (!response.ok) return null;
-  return extractText(await response.json());
+  // Any failure here (network error, timeout, non-OK status) must return
+  // null so callers fall back to the built-in templates instead of a 500.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-5-mini",
+        input: prompt,
+        store: false,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    return extractText(await response.json());
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const bilingual: Record<string, string> = {
@@ -57,6 +68,9 @@ async function handlePost(req: NextRequest) {
   const member = await getCurrentMember();
   if (!isApproved(member)) return NextResponse.json({ error: "Account approval required" }, { status: 403 });
   const body = await req.json() as Record<string, any>;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
   const language = body.language === "es" ? "Spanish" : "English";
 
   if (body.action === "professional_comment") {
