@@ -14,13 +14,17 @@ export const dynamic = "force-dynamic";
  * accounts only):
  *   daily-assignments — Daily Assignment Sheet for one day
  *   weekly-plan       — Weekly Maintenance Plan for one Mon–Sun week
+ *   shop-closing      — Shop Closing Checklist: prints the real daily
+ *                       closing record (Phase 3A inspections module)
+ *                       when one exists for the date; otherwise the
+ *                       published template's items or the blank form.
  *
- * Structured paper templates (their data modules arrive in Phase 3; in
- * this phase they are complete printable forms with every field and row,
- * intentionally WITHOUT any data-capture form, so nothing is typed twice):
+ * Structured paper templates (their data modules arrive in later
+ * phases; they are complete printable forms with every field and row,
+ * intentionally WITHOUT any data-capture form, so nothing is typed
+ * twice):
  *   pending-parts-vendors — Pending Parts & Vendor Log
  *   inventory-reorder     — Inventory Reorder List
- *   shop-closing          — Shop Closing Checklist
  *   training-log          — Training & Safety Meeting Log
  *
  * Access rule (same as every property datum): an unapproved account sees
@@ -508,15 +512,72 @@ export default async function PrintFormatPage({
   }
 
   if (format === "shop-closing") {
+    // Phase 3A: when a real shop closing RECORD exists for the date
+    // (?date=YYYY-MM-DD, default today), this sheet prints the record —
+    // the checklist as executed, the recorded observations, and the
+    // signature with the server-recorded completion time. Without a
+    // record it falls back to the published shop_closing template's
+    // items, then to the built-in blank form, so the paper template
+    // always works.
+    const date = validYmd(query.date, localDate());
+    const admin = createAdminClient();
+    const { data: record } = await admin.from("inspections")
+      .select("id, folio, status, general_notes, signature_name, completed_at, completed_by_member_id, created_by_member_id")
+      .eq("template_type", "shop_closing").eq("scheduled_date", date)
+      .order("created_at", { ascending: false }).limit(1)
+      .maybeSingle<{
+        id: number; folio: string; status: string; general_notes: string | null;
+        signature_name: string | null; completed_at: string | null;
+        completed_by_member_id: number | null; created_by_member_id: number;
+      }>();
+    type ClosingItem = { label: string; checked: boolean; mark: string };
+    let items: ClosingItem[] = t.closingItems.map((label) => ({ label, checked: false, mark: "" }));
+    let performedBy = "";
+    let closingTime = "";
+    if (record) {
+      const { data: results } = await admin.from("inspection_results")
+        .select("prompt, status").eq("inspection_id", record.id).order("position", { ascending: true });
+      items = ((results || []) as { prompt: string; status: string | null }[]).map((row) => ({
+        label: row.prompt,
+        checked: row.status === "completed" || row.status === "no_issue",
+        mark: row.status === "na" ? "N/A"
+          : row.status && row.status !== "completed" && row.status !== "no_issue" ? "!" : "",
+      }));
+      const performerId = record.completed_by_member_id ?? record.created_by_member_id;
+      const { data: performer } = await admin.from("members")
+        .select("name").eq("id", performerId).maybeSingle<{ name: string }>();
+      performedBy = performer?.name || "";
+      if (record.completed_at) {
+        closingTime = new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", {
+          timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
+        }).format(new Date(record.completed_at));
+      }
+    } else {
+      const { data: template } = await admin.from("inspection_templates")
+        .select("id").eq("template_type", "shop_closing").eq("status", "published")
+        .order("created_at", { ascending: true }).limit(1)
+        .maybeSingle<{ id: number }>();
+      if (template) {
+        const { data: templateItems } = await admin.from("inspection_template_items")
+          .select("prompt").eq("template_id", template.id).order("position", { ascending: true });
+        if (templateItems && templateItems.length) {
+          items = (templateItems as { prompt: string }[]).map((row) => ({ label: row.prompt, checked: false, mark: "" }));
+        }
+      }
+    }
     return (
       <main className="print-page">
         {toolbar}
         <div className="print-sheet">
-          <SheetHeader title={t.closingTitle} t={t} folio={`SCC-${localDate().replaceAll("-", "")}`} meta={`The Darley · ${t.department}`} />
+          <SheetHeader title={t.closingTitle} t={t} folio={record ? record.folio : `SCC-${date.replaceAll("-", "")}`} meta={`The Darley · ${t.department} · ${prettyDate(date, lang)}`} />
           <div className="print-fields">
-            <span>{t.date}: <i className="print-inline-line" /></span>
-            <span>{t.completedBy}: <i className="print-inline-line" /></span>
+            <span>{t.date}: {record ? <strong>{prettyDate(date, lang)}</strong> : <i className="print-inline-line" />}</span>
+            <span>{t.completedBy}: {record ? <strong>{performedBy}</strong> : <i className="print-inline-line" />}</span>
+            {record && closingTime && <span>{t.time}: <strong>{closingTime}</strong></span>}
           </div>
+          {record && record.status !== "completed" && (
+            <p className="print-meta">{lang === "es" ? "Registro en proceso — aún no firmado." : "Record in progress — not signed yet."}</p>
+          )}
           <table className="print-table">
             <thead>
               <tr>
@@ -526,20 +587,28 @@ export default async function PrintFormatPage({
               </tr>
             </thead>
             <tbody>
-              {t.closingItems.map((item) => (
-                <tr key={item}>
-                  <td className="print-checkbox-cell">☐</td>
-                  <td>{item}</td>
-                  <td>&nbsp;</td>
+              {items.map((item) => (
+                <tr key={item.label}>
+                  <td className="print-checkbox-cell">{item.checked ? "☑" : "☐"}</td>
+                  <td>{item.label}</td>
+                  <td>{item.mark || "\u00A0"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <section className="print-section">
             <h2>{t.closingIssues}</h2>
-            <div className="print-write-line" /><div className="print-write-line" /><div className="print-write-line" />
+            {record?.general_notes
+              ? <p style={{ whiteSpace: "pre-wrap" }}>{record.general_notes}</p>
+              : <><div className="print-write-line" /><div className="print-write-line" /><div className="print-write-line" /></>}
           </section>
-          <SignOff fields={[t.completedBy, t.time, t.signature]} />
+          {record
+            ? <SignOff fields={[
+                `${t.completedBy}: ${performedBy}`,
+                `${t.time}: ${closingTime}`,
+                `${t.signature}: ${record.signature_name || performedBy}`,
+              ]} />
+            : <SignOff fields={[t.completedBy, t.time, t.signature]} />}
         </div>
       </main>
     );
