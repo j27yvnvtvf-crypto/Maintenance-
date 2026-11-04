@@ -78,3 +78,31 @@ export function canAdminActOn(
 ): boolean {
   return isAdminAccess(actor) && target.id !== actor.id;
 }
+
+/**
+ * Personal phone — identity-verification data collected at registration so
+ * the administrator can confirm that an access requester is a real person
+ * they know before approving the account. It is NOT a permission input and
+ * it is never exposed outside the administrator context (plus the account
+ * owner's own request screen); see memberForClient in lib/access.ts.
+ *
+ * Basic format validation only: an optional leading "+", digits, spaces,
+ * dashes, dots and parentheses, with 7 to 15 digits in total (15 is the
+ * E.164 maximum). Anything else is rejected with a clear message.
+ */
+export function isValidPhone(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const raw = value.trim();
+  if (!raw) return false;
+  if (!/^\+?[0-9\s().-]+$/.test(raw)) return false;
+  const digits = raw.replace(/\D/g, "");
+  return digits.length >= 7 && digits.length <= 15;
+}
+
+/** Canonical stored form: digits only, preserving a leading "+". */
+export function normalizePhone(value: unknown): string | null {
+  if (!isValidPhone(value)) return null;
+  const raw = (value as string).trim();
+  const digits = raw.replace(/\D/g, "");
+  return raw.startsWith("+") ? `+${digits}` : digits;
+}
