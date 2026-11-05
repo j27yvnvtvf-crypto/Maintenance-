@@ -12,7 +12,8 @@
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "verify:access": "node --test scripts/verify-access-model.mjs",
-    "verify:library": "node --test scripts/verify-library.mjs"
+    "verify:library": "node --test scripts/verify-library.mjs",
+    "verify:logbook": "node --test scripts/verify-logbook.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
