@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createAdminClient, createUserClient } from "@/lib/supabase/server";
 import { getCurrentMember, isApproved, type MemberRow } from "@/lib/access";
 import { localDate } from "@/lib/time";
+import { sopColorLabel } from "@/lib/inventory-vendors-rules";
 import { PrintButton } from "../print-button";
 
 export const dynamic = "force-dynamic";
@@ -18,14 +19,19 @@ export const dynamic = "force-dynamic";
  *                       closing record (Phase 3A inspections module)
  *                       when one exists for the date; otherwise the
  *                       published template's items or the blank form.
+ *   pending-parts-vendors — Pending Parts & Vendor Log: open pending
+ *                       parts / services from the Vendors module
+ *                       (Phase 3B), with owner and next action.
+ *   inventory-reorder — Inventory Reorder List: open reorder requests
+ *                       (pending / ordered) from the Shop module
+ *                       (Phase 3B), with the SOP 5025 color legend.
+ *   training-log      — Training & Safety Meeting Log: one recorded
+ *                       session (Phase 3B; ?session=<id>, default the
+ *                       most recent) with its pinned document versions,
+ *                       attendees and action items.
  *
- * Structured paper templates (their data modules arrive in later
- * phases; they are complete printable forms with every field and row,
- * intentionally WITHOUT any data-capture form, so nothing is typed
- * twice):
- *   pending-parts-vendors — Pending Parts & Vendor Log
- *   inventory-reorder     — Inventory Reorder List
- *   training-log          — Training & Safety Meeting Log
+ * The three Phase 3B formats keep their blank paper template: open
+ * them with ?blank=1 to print the empty form, exactly as in Phase 1.
  *
  * Access rule (same as every property datum): an unapproved account sees
  * only a notice — never the data formats — and an unauthenticated visitor
@@ -211,6 +217,11 @@ function validYmd(value: string | undefined, fallback: string) {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback;
 }
 
+function fmtQty(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : "—";
+}
+
 function priorityRank(priority: string) {
   return { emergency: 0, high: 1, medium: 2, low: 3 }[priority] ?? 4;
 }
@@ -313,7 +324,7 @@ export default async function PrintFormatPage({
   params, searchParams,
 }: {
   params: Promise<{ format: string }>;
-  searchParams: Promise<{ date?: string; week?: string }>;
+  searchParams: Promise<{ date?: string; week?: string; blank?: string; session?: string }>;
 }) {
   const { format } = await params;
   if (!FORMATS.includes(format as Format)) notFound();
@@ -447,6 +458,47 @@ export default async function PrintFormatPage({
   }
 
   if (format === "pending-parts-vendors") {
+    // Phase 3B: open pending parts / services from the Vendors module.
+    // ?blank=1 keeps the Phase 1 paper template.
+    const blank = query.blank === "1";
+    type PendingPrintRow = {
+      date: string; wo: string; area: string; partService: string; vendor: string;
+      ordered: string; expected: string; status: string; receivedBy: string;
+    };
+    let rows: PendingPrintRow[] = [];
+    if (!blank) {
+      const admin = createAdminClient();
+      const [{ data: jobRows }, { data: vendorRows }, { data: memberRows }] = await Promise.all([
+        admin.from("vendor_jobs").select("*")
+          .in("kind", ["pending_part", "pending_service"])
+          .not("status", "in", "(completed,verified,cancelled)")
+          .order("created_at", { ascending: true }),
+        admin.from("vendors").select("id, company_name"),
+        admin.from("members").select("id, name"),
+      ]);
+      const vendorName = new Map(((vendorRows || []) as { id: number; company_name: string }[])
+        .map((row) => [row.id, row.company_name]));
+      const personName = new Map(((memberRows || []) as { id: number; name: string }[])
+        .map((row) => [row.id, row.name]));
+      type PendingJobRow = {
+        created_at: string; work_order_id: number | null; related_location: string | null;
+        equipment_text: string | null; title: string; next_action: string | null;
+        vendor_id: number; scheduled_date: string | null; next_action_date: string | null;
+        status: string; verified_by_member_id: number | null; completed_by_member_id: number | null;
+      };
+      rows = ((jobRows || []) as PendingJobRow[]).map((job) => ({
+        date: shortDate(localDate(new Date(String(job.created_at))), lang),
+        wo: job.work_order_id ? `#${job.work_order_id}` : "—",
+        area: job.related_location || job.equipment_text || "—",
+        partService: job.next_action ? `${job.title} — ${job.next_action}` : String(job.title),
+        vendor: vendorName.get(Number(job.vendor_id)) || "—",
+        ordered: job.scheduled_date ? shortDate(String(job.scheduled_date), lang) : "—",
+        expected: job.next_action_date ? shortDate(String(job.next_action_date), lang) : "—",
+        status: String(job.status),
+        receivedBy: (job.verified_by_member_id && personName.get(Number(job.verified_by_member_id)))
+          || (job.completed_by_member_id && personName.get(Number(job.completed_by_member_id))) || "—",
+      }));
+    }
     return (
       <main className="print-page">
         {toolbar}
@@ -454,7 +506,7 @@ export default async function PrintFormatPage({
           <SheetHeader title={t.pendingTitle} t={t} folio={`PPV-${localDate().replaceAll("-", "")}`} meta={`The Darley · ${t.department}`} />
           <div className="print-fields">
             <span>{t.weekOf}: <i className="print-inline-line" /></span>
-            <span>{t.preparedBy}: <i className="print-inline-line" /></span>
+            <span>{t.preparedBy}: {blank ? <i className="print-inline-line" /> : member.name}</span>
           </div>
           <table className="print-table">
             <thead>
@@ -470,7 +522,16 @@ export default async function PrintFormatPage({
                 <th style={{ width: "12%" }}>{t.cols.receivedBy}</th>
               </tr>
             </thead>
-            <tbody><BlankRows count={14} cols={9} /></tbody>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={index}>
+                  <td>{row.date}</td><td>{row.wo}</td><td>{row.area}</td><td>{row.partService}</td>
+                  <td>{row.vendor}</td><td>{row.ordered}</td><td>{row.expected}</td>
+                  <td>{row.status}</td><td>{row.receivedBy}</td>
+                </tr>
+              ))}
+              <BlankRows count={Math.max(0, 14 - rows.length)} cols={9} />
+            </tbody>
           </table>
           <NotesLines t={t} count={2} />
         </div>
@@ -479,6 +540,51 @@ export default async function PrintFormatPage({
   }
 
   if (format === "inventory-reorder") {
+    // Phase 3B: open reorder requests (pending / ordered) from the Shop
+    // module. ?blank=1 keeps the Phase 1 paper template.
+    const blank = query.blank === "1";
+    type ReorderPrintRow = {
+      item: string; location: string; color: string; onHand: string; min: string;
+      toOrder: string; supplier: string; orderedBox: string; notes: string;
+    };
+    let rows: ReorderPrintRow[] = [];
+    if (!blank) {
+      const admin = createAdminClient();
+      const [{ data: reorderRows }, { data: itemRows }] = await Promise.all([
+        admin.from("reorder_requests").select("*")
+          .in("status", ["pending", "ordered"])
+          .order("created_at", { ascending: true }),
+        admin.from("inventory_items").select("*"),
+      ]);
+      type PrintItemRow = {
+        id: number; name: string; location_zone: string | null; location_shelf: string | null;
+        location_bin: string | null; color_category: string;
+        quantity_on_hand: number | string; min_quantity: number | string; supplier: string | null;
+      };
+      type PrintReorderRow = {
+        item_id: number; quantity_requested: number | string; status: string; notes: string | null;
+      };
+      const itemById = new Map<number, PrintItemRow>(((itemRows || []) as PrintItemRow[])
+        .map((row) => [Number(row.id), row]));
+      rows = ((reorderRows || []) as PrintReorderRow[]).map((reorder) => {
+        const item = itemById.get(Number(reorder.item_id));
+        const location = item
+          ? [item.location_zone, item.location_shelf, item.location_bin]
+            .map((part) => String(part || "").trim()).filter(Boolean).join(" · ")
+          : "";
+        return {
+          item: item ? String(item.name) : `#${reorder.item_id}`,
+          location: location || "—",
+          color: item ? sopColorLabel(String(item.color_category), lang) : "—",
+          onHand: item ? fmtQty(item.quantity_on_hand) : "—",
+          min: item ? fmtQty(item.min_quantity) : "—",
+          toOrder: fmtQty(reorder.quantity_requested),
+          supplier: (item && item.supplier) || "—",
+          orderedBox: reorder.status === "ordered" ? "✓" : "",
+          notes: reorder.notes || "",
+        };
+      });
+    }
     return (
       <main className="print-page">
         {toolbar}
@@ -486,8 +592,8 @@ export default async function PrintFormatPage({
           <SheetHeader title={t.reorderTitle} t={t} folio={`IRL-${localDate().replaceAll("-", "")}`} meta={`The Darley · ${t.department}`} />
           <p className="print-note">{t.sopColors}</p>
           <div className="print-fields">
-            <span>{t.date}: <i className="print-inline-line" /></span>
-            <span>{t.preparedBy}: <i className="print-inline-line" /></span>
+            <span>{t.date}: {blank ? <i className="print-inline-line" /> : prettyDate(localDate(), lang)}</span>
+            <span>{t.preparedBy}: {blank ? <i className="print-inline-line" /> : member.name}</span>
           </div>
           <table className="print-table">
             <thead>
@@ -503,7 +609,16 @@ export default async function PrintFormatPage({
                 <th style={{ width: "14%" }}>{t.notes}</th>
               </tr>
             </thead>
-            <tbody><BlankRows count={16} cols={9} /></tbody>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={index}>
+                  <td>{row.item}</td><td>{row.location}</td><td>{row.color}</td>
+                  <td>{row.onHand}</td><td>{row.min}</td><td>{row.toOrder}</td>
+                  <td>{row.supplier}</td><td>{row.orderedBox}</td><td>{row.notes}</td>
+                </tr>
+              ))}
+              <BlankRows count={Math.max(0, 16 - rows.length)} cols={9} />
+            </tbody>
           </table>
           <SignOff fields={[t.preparedBy, t.signature]} />
         </div>
@@ -614,23 +729,96 @@ export default async function PrintFormatPage({
     );
   }
 
-  // training-log
+  // training-log — Phase 3B: prints one recorded training session
+  // (?session=<id>, default the most recent) with the exact document
+  // versions reviewed, its attendees and its action items. ?blank=1
+  // keeps the Phase 1 paper template.
+  const blank = query.blank === "1";
+  type TrainingPrint = {
+    sessionDate: string; startTime: string | null; endTime: string | null;
+    topic: string; presentedBy: string; location: string | null; keyPoints: string | null;
+    docs: string[]; attendees: { name: string; jobTitle: string }[];
+    actions: { description: string; owner: string; due: string }[];
+  };
+  let session: TrainingPrint | null = null;
+  if (!blank) {
+    const admin = createAdminClient();
+    const sessionId = Number(query.session || 0);
+    const base = admin.from("training_sessions").select("*");
+    const { data: sessionRows } = sessionId
+      ? await base.eq("id", sessionId).limit(1)
+      : await base.order("session_date", { ascending: false }).order("id", { ascending: false }).limit(1);
+    type PrintSessionRow = {
+      id: number; session_date: string; start_time: string | null; end_time: string | null;
+      topic: string; presenter_name: string | null; presenter_member_id: number | null;
+      location: string | null; key_points: string | null;
+    };
+    const row = ((sessionRows || []) as PrintSessionRow[])[0];
+    if (row) {
+      const [{ data: attRows }, { data: tdocRows }, { data: actionRows }, { data: memberRows }] = await Promise.all([
+        admin.from("training_attendees").select("member_id").eq("session_id", row.id),
+        admin.from("training_documents").select("document_id, document_version_id").eq("session_id", row.id),
+        admin.from("training_actions").select("*").eq("session_id", row.id).order("created_at", { ascending: true }),
+        admin.from("members").select("id, name, job_title"),
+      ]);
+      const person = new Map(((memberRows || []) as { id: number; name: string; job_title: string | null }[])
+        .map((m) => [m.id, m]));
+      const docIds = [...new Set(((tdocRows || []) as { document_id: number }[]).map((d) => d.document_id))];
+      const versionIds = ((tdocRows || []) as { document_version_id: number }[]).map((d) => d.document_version_id);
+      const [{ data: docRows }, { data: versionRows }] = await Promise.all([
+        docIds.length ? admin.from("documents").select("id, title").in("id", docIds) : Promise.resolve({ data: [] as { id: number; title: string }[] }),
+        versionIds.length ? admin.from("document_versions").select("id, version_number").in("id", versionIds) : Promise.resolve({ data: [] as { id: number; version_number: number }[] }),
+      ]);
+      const docTitle = new Map(((docRows || []) as { id: number; title: string }[]).map((d) => [d.id, d.title]));
+      const versionNumber = new Map(((versionRows || []) as { id: number; version_number: number }[])
+        .map((v) => [v.id, v.version_number]));
+      session = {
+        sessionDate: String(row.session_date),
+        startTime: row.start_time, endTime: row.end_time,
+        topic: String(row.topic),
+        presentedBy: row.presenter_name
+          || (row.presenter_member_id ? person.get(Number(row.presenter_member_id))?.name || "" : ""),
+        location: row.location, keyPoints: row.key_points,
+        docs: ((tdocRows || []) as { document_id: number; document_version_id: number }[]).map((d) =>
+          `${docTitle.get(d.document_id) || `#${d.document_id}`} — v${versionNumber.get(d.document_version_id) ?? "?"}`),
+        attendees: ((attRows || []) as { member_id: number }[]).map((a) => {
+          const m = person.get(a.member_id);
+          return { name: m?.name || `#${a.member_id}`, jobTitle: m?.job_title || "" };
+        }),
+        actions: ((actionRows || []) as {
+          description: string; status: string; responsible_member_id: number | null; due_date: string | null;
+        }[]).map((a) => ({
+          description: a.status === "completed" ? `${a.description} ✓` : String(a.description),
+          owner: a.responsible_member_id ? person.get(Number(a.responsible_member_id))?.name || "" : "",
+          due: a.due_date ? shortDate(String(a.due_date), lang) : "",
+        })),
+      };
+    }
+  }
+  const attendeeRows = session ? session.attendees : [];
   return (
     <main className="print-page">
       {toolbar}
       <div className="print-sheet">
-        <SheetHeader title={t.trainingTitle} t={t} folio={`TSL-${localDate().replaceAll("-", "")}`} meta={`The Darley · ${t.department}`} />
+        <SheetHeader
+          title={t.trainingTitle} t={t}
+          folio={`TSL-${(session ? session.sessionDate : localDate()).replaceAll("-", "")}`}
+          meta={`The Darley · ${t.department}`}
+        />
         <div className="print-fields print-fields-grid">
-          <span>{t.date}: <i className="print-inline-line" /></span>
-          <span>{t.startEnd}: <i className="print-inline-line" /></span>
-          <span>{t.location}: <i className="print-inline-line" /></span>
+          <span>{t.date}: {session ? prettyDate(session.sessionDate, lang) : <i className="print-inline-line" />}</span>
+          <span>{t.startEnd}: {session && (session.startTime || session.endTime)
+            ? `${session.startTime || ""} – ${session.endTime || ""}` : <i className="print-inline-line" />}</span>
+          <span>{t.location}: {session?.location ? session.location : <i className="print-inline-line" />}</span>
           <span>{t.duration}: <i className="print-inline-line" /></span>
-          <span>{t.topic}: <i className="print-inline-line" /></span>
-          <span>{t.presentedBy}: <i className="print-inline-line" /></span>
+          <span>{t.topic}: {session ? session.topic : <i className="print-inline-line" />}</span>
+          <span>{t.presentedBy}: {session?.presentedBy ? session.presentedBy : <i className="print-inline-line" />}</span>
         </div>
         <section className="print-section">
           <h2>{t.docsReviewed}</h2>
-          <div className="print-write-line" />
+          {session && session.docs.length
+            ? session.docs.map((line, i) => <p key={i} className="print-doc-line">{line}</p>)
+            : <div className="print-write-line" />}
         </section>
         <section className="print-section">
           <h2>{t.attendees}</h2>
@@ -644,15 +832,20 @@ export default async function PrintFormatPage({
               </tr>
             </thead>
             <tbody>
-              {Array.from({ length: 12 }, (_, i) => (
-                <tr key={i} className="print-blank-row"><td>{i + 1}</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+              {attendeeRows.map((person, i) => (
+                <tr key={i}><td>{i + 1}</td><td>{person.name}</td><td>&nbsp;</td><td>{person.jobTitle}</td></tr>
+              ))}
+              {Array.from({ length: Math.max(0, 12 - attendeeRows.length) }, (_, i) => (
+                <tr key={`blank-${i}`} className="print-blank-row"><td>{attendeeRows.length + i + 1}</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
               ))}
             </tbody>
           </table>
         </section>
         <section className="print-section">
           <h2>{t.keyPoints}</h2>
-          <div className="print-write-line" /><div className="print-write-line" /><div className="print-write-line" />
+          {session?.keyPoints
+            ? <p style={{ whiteSpace: "pre-wrap" }}>{session.keyPoints}</p>
+            : <><div className="print-write-line" /><div className="print-write-line" /><div className="print-write-line" /></>}
         </section>
         <section className="print-section">
           <h2>{t.actionItems}</h2>
@@ -660,7 +853,12 @@ export default async function PrintFormatPage({
             <thead>
               <tr><th>{t.cols.action}</th><th style={{ width: "22%" }}>{t.cols.owner}</th><th style={{ width: "16%" }}>{t.cols.due}</th></tr>
             </thead>
-            <tbody><BlankRows count={4} cols={3} /></tbody>
+            <tbody>
+              {(session?.actions || []).map((action, i) => (
+                <tr key={i}><td>{action.description}</td><td>{action.owner}</td><td>{action.due}</td></tr>
+              ))}
+              <BlankRows count={Math.max(0, 4 - (session?.actions.length || 0))} cols={3} />
+            </tbody>
           </table>
         </section>
       </div>

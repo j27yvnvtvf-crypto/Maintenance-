@@ -558,6 +558,18 @@ export async function POST(req: NextRequest) {
       }
       if (!responsibleMemberId) responsibleMemberId = me.id;
 
+      // Phase 3B: an event can be born linked to an asset (for example from
+      // the asset's page). `equipment` stays the free-text field; this adds
+      // the structured link without changing anything from Phase 2.
+      let bornAssetId: number | null = null;
+      if (body.assetId) {
+        const { data: asset } = await admin.from("assets")
+          .select("id").eq("id", Number(body.assetId))
+          .maybeSingle<{ id: number }>();
+        if (!asset) return NextResponse.json({ error: "Linked asset not found" }, { status: 400 });
+        bornAssetId = asset.id;
+      }
+
       // Mint the readable folio atomically in the database (BIT-YYYY-NNNN).
       const year = Number(localDate(new Date()).slice(0, 4));
       const { data: folioNumber, error: folioError } = await admin
@@ -575,6 +587,7 @@ export async function POST(req: NextRequest) {
         unit: textField(body.unit, 60),
         area: textField(body.area, 120),
         equipment: textField(body.equipment, 160),
+        asset_id: bornAssetId,
         description,
         findings: textField(body.findings, 5000),
         actions_taken: textField(body.actionsTaken, 5000),
@@ -586,6 +599,18 @@ export async function POST(req: NextRequest) {
       }).select("*").single<LogEventRow>();
       if (createError) throw createError;
       await writeHistory(admin, me, created.id, "created", { folio, eventType });
+      if (bornAssetId) {
+        // Reflect the birth link on the asset's own append-only history.
+        const { error: assetHistoryError } = await admin.from("asset_history").insert({
+          asset_id: bornAssetId,
+          action: "event_linked",
+          detail: { logEventId: created.id, folio, bornLinked: true },
+          actor_member_id: me.id,
+          actor_user_id: me.user_id,
+          actor_email: me.email,
+        });
+        if (assetHistoryError) throw assetHistoryError;
+      }
       await notify(
         admin,
         assignmentNotificationRecipients(me.id, responsibleMemberId),
