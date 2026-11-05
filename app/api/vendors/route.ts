@@ -107,6 +107,9 @@ function forbidden() {
 
 function failure(error: unknown) {
   if (error instanceof Error && error.message === "NOT_APPROVED") return forbidden();
+  if (error instanceof Error && error.message === "UNAUTHENTICATED") {
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  }
   const message = error instanceof Error ? error.message : "Unexpected error";
   return NextResponse.json({ error: message }, { status: 500 });
 }
