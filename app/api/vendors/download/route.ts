@@ -47,6 +47,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(signed.signedUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
+    if (message === "UNAUTHENTICATED") {
+      return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
