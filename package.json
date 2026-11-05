@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
-    "verify:access": "node --test scripts/verify-access-model.mjs"
+    "verify:access": "node --test scripts/verify-access-model.mjs",
+    "verify:library": "node --test scripts/verify-library.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
