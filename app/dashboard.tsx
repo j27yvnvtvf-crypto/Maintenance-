@@ -5,10 +5,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, BookOpen, Bot, CheckCircle2, ClipboardList, Languages,
-  LayoutDashboard, LogOut, NotebookPen, Plus, RefreshCw, Sparkles, UserRoundPlus, Users, Waves, Wrench,
+  ClipboardCheck, LayoutDashboard, LogOut, NotebookPen, Plus, RefreshCw, Sparkles, UserRoundPlus, Users, Waves, Wrench,
 } from "lucide-react";
 import { LibraryPanel } from "./library-panel";
 import { LogbookPanel, LogbookTodayCard } from "./logbook-panel";
+import { InspectionsPanel, InspectionsTodayCard } from "./inspections-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,7 +50,7 @@ type Data = {
 
 const copy = {
   en: {
-    overview: "Overview", work: "Work Orders", team: "Team", ai: "AI Assistant", library: "Library", logbook: "Logbook",
+    overview: "Overview", work: "Work Orders", team: "Team", ai: "AI Assistant", library: "Library", logbook: "Logbook", inspections: "Inspections",
     adminPanel: "Administration", subtitle: "Assign, track, and close maintenance work",
     newJob: "Assign Work", active: "Active", completed: "Completed", urgent: "Urgent",
     technicians: "Team", today: "Today", noJobs: "No work orders yet.",
@@ -81,7 +82,7 @@ const copy = {
     signOut: "Sign out", teamMember: "Team member",
   },
   es: {
-    overview: "Resumen", work: "Órdenes", team: "Equipo", ai: "Asistente IA", library: "Biblioteca", logbook: "Bitácora",
+    overview: "Resumen", work: "Órdenes", team: "Equipo", ai: "Asistente IA", library: "Biblioteca", logbook: "Bitácora", inspections: "Inspecciones",
     adminPanel: "Administración", subtitle: "Asigna, controla y completa trabajos de mantenimiento",
     newJob: "Asignar trabajo", active: "Activos", completed: "Completados", urgent: "Urgentes",
     technicians: "Equipo", today: "Hoy", noJobs: "Todavía no hay órdenes de trabajo.",
@@ -317,7 +318,7 @@ export function Dashboard() {
               <p className="text-sm font-bold uppercase tracking-[.12em] text-[#007a9f]">
                 {admin ? t.adminPanel : t.dailyWork}
               </p>
-              <h2 className="text-2xl font-black">{tab === "overview" ? t.overview : tab === "work" ? t.work : tab === "team" ? t.team : tab === "library" ? t.library : tab === "logbook" ? t.logbook : t.ai}</h2>
+              <h2 className="text-2xl font-black">{tab === "overview" ? t.overview : tab === "work" ? t.work : tab === "team" ? t.team : tab === "library" ? t.library : tab === "logbook" ? t.logbook : tab === "inspections" ? t.inspections : t.ai}</h2>
             </div>
             <NewJobDialog
               open={jobOpen} setOpen={setJobOpen} t={t} form={form}
@@ -339,7 +340,10 @@ export function Dashboard() {
                 </CardHeader>
               </Card>
               {tab === "overview" && (
-                <LogbookTodayCard lang={lang} onOpen={() => setTab("logbook")} />
+                <>
+                  <LogbookTodayCard lang={lang} onOpen={() => setTab("logbook")} />
+                  <InspectionsTodayCard lang={lang} onOpen={() => setTab("inspections")} />
+                </>
               )}
               <JobList
                 jobs={jobs} lang={lang} t={t} updateJob={updateJob}
@@ -367,6 +371,10 @@ export function Dashboard() {
 
           {tab === "logbook" && (
             <LogbookPanel lang={lang} team={data.team} meId={data.me.id} />
+          )}
+
+          {tab === "inspections" && (
+            <InspectionsPanel lang={lang} team={data.team} meId={data.me.id} isAdmin={data.me.isAdmin} />
           )}
 
           {tab === "ai" && (
@@ -510,7 +518,7 @@ function Header({ data, lang, setLanguage, t }: any) {
 }
 
 function SideNav({ tab, setTab, t, name }: any) {
-  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["logbook", NotebookPen, t.logbook], ["team", Users, t.team], ["library", BookOpen, t.library], ["ai", Bot, t.ai]];
+  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["logbook", NotebookPen, t.logbook], ["inspections", ClipboardCheck, t.inspections], ["team", Users, t.team], ["library", BookOpen, t.library], ["ai", Bot, t.ai]];
   return (
     <aside className="hidden h-fit rounded-3xl bg-[#052f49] p-3 text-white shadow-xl lg:block">
       <div className="px-3 pb-4 pt-2"><p className="text-xs uppercase tracking-[.18em] text-cyan-100/60">{t.today}</p><p className="mt-1 font-bold">{name}</p></div>
@@ -720,9 +728,9 @@ function AIPanel({ t, summary, busy, openAI, dailySummary, canSummarize }: any) 
 }
 
 function MobileNav({ tab, setTab, t }: any) {
-  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["logbook", NotebookPen, t.logbook], ["team", Users, t.team], ["library", BookOpen, t.library], ["ai", Bot, t.ai]];
+  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["logbook", NotebookPen, t.logbook], ["inspections", ClipboardCheck, t.inspections], ["team", Users, t.team], ["library", BookOpen, t.library], ["ai", Bot, t.ai]];
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t bg-white px-2 py-2 shadow-[0_-8px_25px_rgba(15,23,42,.08)] lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t bg-white px-2 py-2 shadow-[0_-8px_25px_rgba(15,23,42,.08)] lg:hidden">
       {items.map(([id, Icon, label]: any) => (
         <button key={id} onClick={() => setTab(id)} className={`grid justify-items-center gap-1 rounded-xl py-2 text-xs font-bold ${tab === id ? "bg-sky-50 text-[#005f82]" : "text-slate-500"}`}>
           <Icon className="size-5" />{label}
