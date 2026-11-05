@@ -96,6 +96,13 @@ const pendingSession = await signUp(pendingUser.email, password, pendingUser.job
 const techSession = await signUp(techUser.email, password, techUser.jobTitle);
 const managerSession = await signUp(managerUser.email, password, managerUser.jobTitle);
 
+// Member rows materialize on each account's first app bootstrap (the same
+// thing that happens when a real user opens the app after registering), so
+// touch the API once per user before looking their rows up by email.
+await api(pendingSession);
+await api(techSession);
+await api(managerSession);
+
 // Check 1: a pending account receives no data and 403 on data actions.
 {
   const boot = await api(pendingSession);
