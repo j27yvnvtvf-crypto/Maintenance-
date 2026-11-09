@@ -28,8 +28,8 @@
  *   and verification of its closure are separate acts, each recorded
  *   with its own author and timestamp.
  * - Frequencies are CONFIGURABLE DATA the administrator sets per
- *   template (daily / weekly / monthly / quarterly / annual / custom /
- *   none, plus a free-text note). The system presets none of them and
+ *   template (daily / weekly / monthly / quarterly / semiannual /
+ *   annual / custom / none, plus a free-text note). The system presets none of them and
  *   never labels any of them official: applicable frequencies come
  *   from the SOPs and manufacturer instructions, which only the
  *   administrator can speak for.
@@ -62,6 +62,7 @@ export type FrequencyType =
   | "weekly"
   | "monthly"
   | "quarterly"
+  | "semiannual"
   | "annual"
   | "custom"
   | "none";
@@ -92,7 +93,7 @@ export const TEMPLATE_STATUSES: TemplateStatus[] = ["draft", "published", "archi
  * as the official frequency of any SOP or manufacturer instruction.
  */
 export const FREQUENCY_TYPES: FrequencyType[] = [
-  "daily", "weekly", "monthly", "quarterly", "annual", "custom", "none",
+  "daily", "weekly", "monthly", "quarterly", "semiannual", "annual", "custom", "none",
 ];
 
 export const ITEM_RESPONSE_TYPES: ItemResponseType[] = ["status", "yes_no"];

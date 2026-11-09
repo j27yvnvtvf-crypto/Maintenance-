@@ -89,6 +89,10 @@ export const REPORT_MODULES = [
   "assets",
   "refrigerant",
   "vendors",
+  // Phase 5: the central registry view of work_orders with the Centro
+  // de Operaciones fields (record type, origin, building/unit,
+  // verification, holds). "work_orders" above keeps its Phase 4 shape.
+  "jobs",
 ] as const;
 
 export type ReportModule = (typeof REPORT_MODULES)[number];
@@ -341,6 +345,18 @@ export const CSV_COLUMNS: Record<ReportModule, CsvColumn[]> = {
     col("priority", "Priority"), col("status", "Status"),
     col("assignedTo", "Assigned to"), col("dueDate", "Due date"),
     col("completionComment", "Completion comment"),
+  ],
+  jobs: [
+    col("id", "ID"), col("createdAt", "Created at"), col("title", "Title"),
+    col("recordType", "Record type"), col("origin", "Origin"),
+    col("externalRef", "External ref"), col("building", "Building"),
+    col("unit", "Unit"), col("area", "Area"), col("category", "Category"),
+    col("priority", "Priority"), col("status", "Status"),
+    col("assigned", "Assigned to"), col("due", "Due date"),
+    col("scheduled", "Scheduled date"), col("vendor", "Vendor"),
+    col("holdReason", "Hold reason"), col("holdFollowUpDate", "Hold follow-up date"),
+    col("holdFollowUpBy", "Hold follow-up by"), col("nextAction", "Next action"),
+    col("verifiedBy", "Verified by"), col("verifiedAt", "Verified at"),
   ],
   inventory: [
     col("id", "ID"), col("name", "Item"), col("colorCategory", "Color (SOP 5025)"),

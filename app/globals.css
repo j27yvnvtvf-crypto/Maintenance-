@@ -3,38 +3,38 @@
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
 :root {
-  --background: #f1f6f9;
-  --foreground: #172333;
+  --background: #f2f7f3;
+  --foreground: #17291f;
   --card: #ffffff;
-  --card-foreground: #172333;
+  --card-foreground: #17291f;
   --popover: #ffffff;
-  --popover-foreground: #172333;
-  --primary: #005f82;
+  --popover-foreground: #17291f;
+  --primary: #1e7a4c;
   --primary-foreground: #ffffff;
-  --secondary: #e5f2f7;
-  --secondary-foreground: #073c57;
-  --muted: #edf3f6;
-  --muted-foreground: #637180;
-  --accent: #d0aa5b;
-  --accent-foreground: #17374b;
+  --secondary: #e3f2e8;
+  --secondary-foreground: #0d3b2a;
+  --muted: #ebf2ec;
+  --muted-foreground: #5f7267;
+  --accent: #34a46a;
+  --accent-foreground: #0d3b2a;
   --destructive: #c62828;
-  --border: #d7e1e7;
-  --input: #cdd9e0;
-  --ring: #007a9f;
-  --chart-1: #007a9f;
+  --border: #d3e2d8;
+  --input: #c6d8cc;
+  --ring: #1e7a4c;
+  --chart-1: #1e7a4c;
   --chart-2: #2d9d78;
-  --chart-3: #d0aa5b;
+  --chart-3: #7fbf9a;
   --chart-4: #ef8f32;
   --chart-5: #c62828;
   --radius: 0.9rem;
-  --sidebar: #052f49;
+  --sidebar: #0d3b2a;
   --sidebar-foreground: #ffffff;
   --sidebar-primary: #ffffff;
-  --sidebar-primary-foreground: #052f49;
-  --sidebar-accent: #0a526f;
+  --sidebar-primary-foreground: #0d3b2a;
+  --sidebar-accent: #17573d;
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #ffffff22;
-  --sidebar-ring: #d0aa5b;
+  --sidebar-ring: #34a46a;
 }
 
 @theme inline {
@@ -79,7 +79,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
 button, input, textarea { font-size: 1rem; }
-::selection { background: #d0aa5b55; }
+::selection { background: #34a46a44; }
 
 /* ---------------------------------------------------------------------------
    Printable operating formats (Phase 1). The .print-sheet is a US Letter

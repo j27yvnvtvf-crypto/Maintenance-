@@ -59,6 +59,8 @@ type ItemRow = {
   supplier: string | null; location_zone: string | null;
   location_shelf: string | null; location_bin: string | null;
   notes: string | null; status: string;
+  sku: string | null; unit_cost: number | string | null;
+  gl_code: string | null; quote_ref: string | null; po_number: string | null;
   created_at: string; updated_at: string;
 };
 
@@ -323,6 +325,11 @@ function itemForClient(item: ItemRow, openReorderIds: Set<number>) {
       .map((part) => (part || "").trim()).filter(Boolean).join(" · "),
     notes: item.notes,
     status: item.status,
+    sku: item.sku ?? null,
+    unitCost: item.unit_cost != null && item.unit_cost !== undefined ? Number(item.unit_cost) : null,
+    glCode: item.gl_code ?? null,
+    quoteRef: item.quote_ref ?? null,
+    poNumber: item.po_number ?? null,
     belowMinimum: isBelowMinimum(item),
     hasOpenReorder: openReorderIds.has(item.id),
     createdAt: item.created_at,
@@ -757,6 +764,12 @@ export async function POST(req: NextRequest) {
       if (initial < 0 || minimum < 0) {
         return NextResponse.json({ error: "Quantities cannot be negative" }, { status: 400 });
       }
+      // Phase 5 purchasing references: SKU, unit cost, GL code, quote/PO.
+      const unitCost = body.unitCost !== undefined ? numField(body.unitCost) : null;
+      if (body.unitCost !== undefined && body.unitCost !== null && body.unitCost !== ""
+        && (unitCost === null || unitCost < 0)) {
+        return NextResponse.json({ error: "Unit cost cannot be negative" }, { status: 400 });
+      }
       const { data: created, error } = await admin.from("inventory_items").insert({
         name,
         color_category: colorCategory,
@@ -768,6 +781,11 @@ export async function POST(req: NextRequest) {
         location_shelf: textField(body.locationShelf, 80),
         location_bin: textField(body.locationBin, 80),
         notes: textField(body.notes, 2000),
+        sku: textField(body.sku, 120),
+        unit_cost: unitCost,
+        gl_code: textField(body.glCode, 120),
+        quote_ref: textField(body.quoteRef, 200),
+        po_number: textField(body.poNumber, 120),
         status: "active",
         created_by_member_id: me.id,
         created_by_user_id: me.user_id,
@@ -832,9 +850,18 @@ export async function POST(req: NextRequest) {
         ["unit", "unit", 30], ["supplier", "supplier", 160],
         ["locationZone", "location_zone", 80], ["locationShelf", "location_shelf", 80],
         ["locationBin", "location_bin", 80], ["notes", "notes", 2000],
+        ["sku", "sku", 120], ["glCode", "gl_code", 120],
+        ["quoteRef", "quote_ref", 200], ["poNumber", "po_number", 120],
       ];
       for (const [input, column, max] of textMap) {
         if (body[input] !== undefined) { update[column] = textField(body[input], max); changed.push(input); }
+      }
+      if (body.unitCost !== undefined) {
+        const unitCost = numField(body.unitCost);
+        if (body.unitCost !== null && body.unitCost !== "" && (unitCost === null || unitCost < 0)) {
+          return NextResponse.json({ error: "Unit cost cannot be negative" }, { status: 400 });
+        }
+        update.unit_cost = unitCost; changed.push("unitCost");
       }
       if (!changed.length) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
       const { error } = await admin.from("inventory_items").update(update).eq("id", item.id);
