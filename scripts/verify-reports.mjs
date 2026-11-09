@@ -378,6 +378,10 @@ test("contract: printable report + dossier formats and the dashboard tab exist",
 });
 
 test("contract: Phase 4 adds NO migration — it reads the phases 0–3 schema", () => {
+  // The expected list is the migration history as of Phase 4 (which
+  // added none) PLUS the Phase 5 Centro de Operaciones migration,
+  // appended when that phase landed. Phase 4 itself added nothing:
+  // every entry except the last predates it.
   const migrations = readdirSync(join(root, "supabase/migrations")).sort();
   assert.deepEqual(migrations, [
     "202609210001_initial_schema.sql",
@@ -388,5 +392,6 @@ test("contract: Phase 4 adds NO migration — it reads the phases 0–3 schema",
     "20261103230000_logbook.sql",
     "20261103233000_inspections_pm.sql",
     "20261103240000_inventory_vendors.sql",
+    "20261109200000_centro_operaciones.sql",
   ]);
 });
