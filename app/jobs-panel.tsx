@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, CheckCircle2, Copy, History, Paperclip, Plus, RotateCcw, Search, Upload, Users, Wallet,
+  ArrowLeft, CheckCircle2, Copy, History, Paperclip, Pencil, Plus, RotateCcw, Search, Upload, Users, Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -665,7 +665,10 @@ function QuotesSection({ job, lang, vendors, setMessage }: { job: Job; lang: Lan
   const es = lang === "es";
   const [quotes, setQuotes] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ quotedAmount: "", authorizedAmount: "", actualCost: "", poNumber: "", glCode: "", reference: "", scope: "", notes: "", vendorId: "none" });
+  const emptyForm = { quotedAmount: "", authorizedAmount: "", actualCost: "", poNumber: "", glCode: "", reference: "", scope: "", notes: "", vendorId: "none" };
+  const [form, setForm] = useState(emptyForm);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState(emptyForm);
 
   const load = useCallback(async () => {
     try { const data = await api(`/api/quotes?workOrderId=${job.id}`); setQuotes(data.quotes || []); }
@@ -685,8 +688,44 @@ function QuotesSection({ job, lang, vendors, setMessage }: { job: Job; lang: Lan
         poNumber: form.poNumber || undefined, glCode: form.glCode || undefined,
         reference: form.reference || undefined, scope: form.scope || undefined, notes: form.notes || undefined,
       });
-      setForm({ quotedAmount: "", authorizedAmount: "", actualCost: "", poNumber: "", glCode: "", reference: "", scope: "", notes: "", vendorId: "none" });
+      setForm(emptyForm);
       await load();
+      setMessage(es ? "Cotización agregada." : "Quote added.");
+    } catch (error) { setMessage(describeError(error, es)); }
+    finally { setBusy(false); }
+  }
+
+  function startEdit(quote: any) {
+    setEditForm({
+      quotedAmount: quote.quotedAmount != null ? String(quote.quotedAmount) : "",
+      authorizedAmount: quote.authorizedAmount != null ? String(quote.authorizedAmount) : "",
+      actualCost: quote.actualCost != null ? String(quote.actualCost) : "",
+      poNumber: quote.poNumber || "",
+      glCode: quote.glCode || "",
+      reference: quote.reference || "",
+      scope: quote.scope || "",
+      notes: quote.notes || "",
+      vendorId: quote.vendorId ? String(quote.vendorId) : "none",
+    });
+    setEditing(quote);
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setBusy(true);
+    try {
+      await api("/api/quotes", {
+        action: "update", id: editing.id,
+        vendorId: editForm.vendorId === "none" ? null : Number(editForm.vendorId),
+        quotedAmount: editForm.quotedAmount ? Number(editForm.quotedAmount) : null,
+        authorizedAmount: editForm.authorizedAmount ? Number(editForm.authorizedAmount) : null,
+        actualCost: editForm.actualCost ? Number(editForm.actualCost) : null,
+        poNumber: editForm.poNumber, glCode: editForm.glCode,
+        reference: editForm.reference, scope: editForm.scope, notes: editForm.notes,
+      });
+      setEditing(null);
+      await load();
+      setMessage(es ? "Cotización actualizada." : "Quote updated.");
     } catch (error) { setMessage(describeError(error, es)); }
     finally { setBusy(false); }
   }
@@ -703,7 +742,12 @@ function QuotesSection({ job, lang, vendors, setMessage }: { job: Job; lang: Lan
             {quote.poNumber && <span>PO: {quote.poNumber}</span>}
             {quote.glCode && <span>GL: {quote.glCode}</span>}
             {quote.reference && <span>{quote.reference}</span>}
+            {quote.vendorName && <span><strong>Vendor:</strong> {quote.vendorName}</span>}
             {quote.scope && <span className="w-full text-slate-500">{quote.scope}</span>}
+            {quote.notes && <span className="w-full text-slate-500">{quote.notes}</span>}
+            <span className="ml-auto">
+              <Button variant="outline" size="sm" className="min-h-11" disabled={busy} onClick={() => startEdit(quote)}><Pencil />{es ? "Editar" : "Edit"}</Button>
+            </span>
           </div>
         ))}
         <div className="grid grid-cols-2 gap-2">
@@ -722,6 +766,35 @@ function QuotesSection({ job, lang, vendors, setMessage }: { job: Job; lang: Lan
         <Textarea placeholder={es ? "Notas" : "Notes"} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         <div className="flex justify-end"><Button className="min-h-11" disabled={busy} onClick={add}>{es ? "Agregar cotización" : "Add quote"}</Button></div>
       </CardContent>
+
+      <Dialog open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{es ? "Editar cotización" : "Edit quote"}</DialogTitle>
+            <DialogDescription>{es ? "Actualiza los montos y datos de esta cotización. No cambia el estado ni la verificación de la orden de trabajo." : "Update this quote's amounts and details. It does not change the work order's status or verification."}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Input type="number" step="0.01" placeholder={es ? "Monto cotizado" : "Quoted amount"} value={editForm.quotedAmount} onChange={(e) => setEditForm({ ...editForm, quotedAmount: e.target.value })} />
+              <Input type="number" step="0.01" placeholder={es ? "Monto autorizado" : "Authorized amount"} value={editForm.authorizedAmount} onChange={(e) => setEditForm({ ...editForm, authorizedAmount: e.target.value })} />
+              <Input type="number" step="0.01" placeholder={es ? "Costo real" : "Actual cost"} value={editForm.actualCost} onChange={(e) => setEditForm({ ...editForm, actualCost: e.target.value })} />
+              <Input placeholder="PO" value={editForm.poNumber} onChange={(e) => setEditForm({ ...editForm, poNumber: e.target.value })} />
+              <Input placeholder="GL" value={editForm.glCode} onChange={(e) => setEditForm({ ...editForm, glCode: e.target.value })} />
+              <Input placeholder={es ? "Referencia" : "Reference"} value={editForm.reference} onChange={(e) => setEditForm({ ...editForm, reference: e.target.value })} />
+              <Select value={editForm.vendorId} onValueChange={(v) => setEditForm({ ...editForm, vendorId: v })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="none">{es ? "Sin vendor" : "No vendor"}</SelectItem>{vendors.map((v) => <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>)}</SelectContent>
+              </Select>
+              <Input placeholder={es ? "Alcance" : "Scope"} value={editForm.scope} onChange={(e) => setEditForm({ ...editForm, scope: e.target.value })} />
+            </div>
+            <Textarea placeholder={es ? "Notas" : "Notes"} value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => setEditing(null)}>{es ? "Cancelar" : "Cancel"}</Button>
+            <Button className="min-h-11 bg-emerald-700 hover:bg-emerald-600" disabled={busy} onClick={saveEdit}>{es ? "Guardar cotización" : "Save quote"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
