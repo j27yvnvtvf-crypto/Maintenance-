@@ -280,7 +280,7 @@ export function ReportsPanel({ lang, team, isAdmin }: {
   const set = (patch: Partial<typeof filters>) => setFilters((prev) => ({ ...prev, ...patch }));
   const statusOptions = STATUSES[filters.module] || [];
   const printReportUrl = `/print/audit-report?${queryString(filters)}`;
-  const exportUrl = `/api/reports/export?${queryString({ ...filters, module: csvModule })}`;
+  const exportUrl = `/api/reports/export?${queryString({ ...filters, module: csvModule }, { lang })}`;
   const printDossierUrl = dossier
     ? dossier.kind === "case" && dossier.seedEvent
       ? `/print/case-dossier?case=${dossier.seedEvent.id}`

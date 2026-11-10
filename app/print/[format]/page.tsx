@@ -286,11 +286,11 @@ function BlankRows({ count, cols }: { count: number; cols: number }) {
   );
 }
 
-function SheetHeader({ title, t, folio, meta }: {
+function SheetHeader({ title, t, folio, meta, lang }: {
   title: string; t: (typeof copy)["en"] | (typeof copy)["es"];
-  folio: string; meta: string;
+  folio: string; meta: string; lang: Lang;
 }) {
-  const generated = new Intl.DateTimeFormat("en-US", {
+  const generated = new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", {
     timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short",
   }).format(new Date());
   return (
@@ -367,7 +367,7 @@ export default async function PrintFormatPage({
       <main className="print-page">
         {toolbar}
         <div className="print-sheet">
-          <SheetHeader title={t.noAccessTitle} t={t} folio="—" meta="The Darley" />
+          <SheetHeader title={t.noAccessTitle} t={t} lang={lang} folio="—" meta="The Darley" />
           <p className="print-empty">{t.noAccessText}</p>
         </div>
       </main>
@@ -402,7 +402,7 @@ export default async function PrintFormatPage({
       <main className="print-page">
         {toolbar}
         <div className="print-sheet">
-          <SheetHeader title={t.dailyTitle} t={t} folio={`DAS-${date.replaceAll("-", "")}`} meta={`${t.date}: ${prettyDate(date, lang)}`} />
+          <SheetHeader title={t.dailyTitle} t={t} lang={lang} folio={`DAS-${date.replaceAll("-", "")}`} meta={`${t.date}: ${prettyDate(date, lang)}`} />
           <section className="print-section">
             <h2>{t.dueToday}</h2>
             {sortedGroups.length === 0 && <p className="print-empty">{t.noJobs}</p>}
@@ -438,7 +438,7 @@ export default async function PrintFormatPage({
         {toolbar}
         <div className="print-sheet">
           <SheetHeader
-            title={t.weeklyTitle} t={t}
+            title={t.weeklyTitle} t={t} lang={lang}
             folio={`WMP-${monday.replaceAll("-", "")}`}
             meta={`${t.weekOf}: ${prettyDate(monday, lang)} — ${prettyDate(days[6], lang)}`}
           />
@@ -521,7 +521,7 @@ export default async function PrintFormatPage({
       <main className="print-page">
         {toolbar}
         <div className="print-sheet">
-          <SheetHeader title={t.pendingTitle} t={t} folio={`PPV-${localDate().replaceAll("-", "")}`} meta={`The Darley · ${t.department}`} />
+          <SheetHeader title={t.pendingTitle} t={t} lang={lang} folio={`PPV-${localDate().replaceAll("-", "")}`} meta={`The Darley · ${t.department}`} />
           <div className="print-fields">
             <span>{t.weekOf}: <i className="print-inline-line" /></span>
             <span>{t.preparedBy}: {blank ? <i className="print-inline-line" /> : member.name}</span>
@@ -607,7 +607,7 @@ export default async function PrintFormatPage({
       <main className="print-page">
         {toolbar}
         <div className="print-sheet">
-          <SheetHeader title={t.reorderTitle} t={t} folio={`IRL-${localDate().replaceAll("-", "")}`} meta={`The Darley · ${t.department}`} />
+          <SheetHeader title={t.reorderTitle} t={t} lang={lang} folio={`IRL-${localDate().replaceAll("-", "")}`} meta={`The Darley · ${t.department}`} />
           <p className="print-note">{t.sopColors}</p>
           <div className="print-fields">
             <span>{t.date}: {blank ? <i className="print-inline-line" /> : prettyDate(localDate(), lang)}</span>
@@ -702,7 +702,7 @@ export default async function PrintFormatPage({
       <main className="print-page">
         {toolbar}
         <div className="print-sheet">
-          <SheetHeader title={t.closingTitle} t={t} folio={record ? record.folio : `SCC-${date.replaceAll("-", "")}`} meta={`The Darley · ${t.department} · ${prettyDate(date, lang)}`} />
+          <SheetHeader title={t.closingTitle} t={t} lang={lang} folio={record ? record.folio : `SCC-${date.replaceAll("-", "")}`} meta={`The Darley · ${t.department} · ${prettyDate(date, lang)}`} />
           <div className="print-fields">
             <span>{t.date}: {record ? <strong>{prettyDate(date, lang)}</strong> : <i className="print-inline-line" />}</span>
             <span>{t.completedBy}: {record ? <strong>{performedBy}</strong> : <i className="print-inline-line" />}</span>
@@ -832,7 +832,7 @@ export default async function PrintFormatPage({
           {toolbar}
           <div className="print-sheet">
             <SheetHeader
-              title={rc.reportTitle} t={t}
+              title={rc.reportTitle} t={t} lang={lang}
               folio={`RPT-${localDate().replaceAll("-", "")}`}
               meta={`The Darley · ${t.department} · ${search.total} ${rc.records}`}
             />
@@ -893,7 +893,7 @@ export default async function PrintFormatPage({
         {toolbar}
         <div className="print-sheet">
           <SheetHeader
-            title={rc.dossierTitle} t={t} folio={dossierFolio}
+            title={rc.dossierTitle} t={t} lang={lang} folio={dossierFolio}
             meta={dossier ? `${dossier.title} · The Darley · ${t.department}` : "The Darley"}
           />
           <div className="print-fields">
@@ -1044,7 +1044,7 @@ export default async function PrintFormatPage({
       {toolbar}
       <div className="print-sheet">
         <SheetHeader
-          title={t.trainingTitle} t={t}
+          title={t.trainingTitle} t={t} lang={lang}
           folio={`TSL-${(session ? session.sessionDate : localDate()).replaceAll("-", "")}`}
           meta={`The Darley · ${t.department}`}
         />

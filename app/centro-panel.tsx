@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  JOB_PRIORITY_LABELS_ES, JOB_STATUS_LABELS_ES, type Job,
+  jobPriorityLabel, jobStatusLabel, type Job,
 } from "@/lib/jobs-rules";
 import type { JobsPreset } from "./jobs-panel";
 
@@ -34,10 +34,30 @@ async function api(path: string) {
   return payload;
 }
 
-function todayNY(): string {
-  return new Intl.DateTimeFormat("es-US", {
+function todayNY(lang: Language): string {
+  return new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", {
     timeZone: "America/New_York", weekday: "long", day: "numeric", month: "long", year: "numeric",
   }).format(new Date());
+}
+
+/** Live clock for The Darley's time zone (America/New_York), refreshed
+ * every 15 seconds. Renders nothing until mounted so the server and
+ * first client paint agree. */
+function LiveClockNY({ lang }: { lang: Language }) {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+  if (!now) return null;
+  return (
+    <>
+      {new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", {
+        timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
+      }).format(now)}
+    </>
+  );
 }
 
 function priorityClass(priority: string) {
@@ -51,9 +71,9 @@ export function CentroPanel({ lang, onNavigate }: { lang: Language; onNavigate: 
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
-    try { setData(await api(`/api/centro?scope=${scope}`)); }
+    try { setData(await api(`/api/centro?scope=${scope}&lang=${lang}`)); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Error"); }
-  }, [scope]);
+  }, [scope, lang]);
   useEffect(() => { void load(); }, [load]);
 
   const blockedPreset: JobsPreset = { statuses: ["waiting_vendor", "waiting_parts", "waiting_resident", "on_hold"] };
@@ -74,8 +94,8 @@ export function CentroPanel({ lang, onNavigate }: { lang: Language; onNavigate: 
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
             <p className="text-sm font-bold uppercase tracking-[.12em] text-emerald-100/80">{es ? "Resumen diario" : "Daily summary"}</p>
-            <h3 className="mt-1 text-xl font-black capitalize">{todayNY()}</h3>
-            <p className="text-sm text-emerald-50/80">The Darley · America/New_York</p>
+            <h3 className="mt-1 text-xl font-black capitalize">{todayNY(lang)}</h3>
+            <p className="text-sm text-emerald-50/80">The Darley · <LiveClockNY lang={lang} /></p>
           </div>
           <div className="flex rounded-2xl bg-white/15 p-1">
             {(["all", "mine"] as const).map((value) => (
@@ -112,8 +132,8 @@ export function CentroPanel({ lang, onNavigate }: { lang: Language; onNavigate: 
                 <button key={job.id} onClick={() => onNavigate(job.recordType === "task" ? "tasks" : "work", { recordType: job.recordType === "task" ? "task" : "work_order", q: String(job.id) })} className="flex w-full flex-wrap items-center gap-2 rounded-2xl bg-slate-50 p-3 text-left">
                   <Badge variant="outline">#{job.id}</Badge>
                   <span className="font-bold">{job.title}</span>
-                  <Badge className={priorityClass(job.priority)}>{(JOB_PRIORITY_LABELS_ES as any)[job.priority] || job.priority}</Badge>
-                  <Badge variant="outline">{(JOB_STATUS_LABELS_ES as any)[job.status] || job.status}</Badge>
+                  <Badge className={priorityClass(job.priority)}>{jobPriorityLabel(job.priority, lang)}</Badge>
+                  <Badge variant="outline">{jobStatusLabel(job.status, lang)}</Badge>
                   <span className="text-sm text-slate-500">{[job.building, job.unit].filter(Boolean).join(" · ")}</span>
                   {(job.dueDate || job.scheduledDate) && <span className="ml-auto text-sm font-semibold text-slate-500">{job.dueDate || job.scheduledDate}</span>}
                 </button>
