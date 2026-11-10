@@ -76,7 +76,9 @@ export async function GET(req: NextRequest) {
         module: moduleKey,
         filters,
         attachmentsIncluded: false,
-        attachmentsNote: "La exportación incluye solo referencias a adjuntos, no los archivos.",
+        attachmentsNote: params.get("lang") === "en"
+          ? "The export includes only references to attachments, not the files."
+          : "La exportación incluye solo referencias a adjuntos, no los archivos.",
         rows,
       }, { headers: { "Cache-Control": "no-store" } });
     }

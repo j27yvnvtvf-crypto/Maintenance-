@@ -143,6 +143,17 @@ export const JOB_STATUS_LABELS_ES: Record<JobStatus, string> = {
   completed: "Completado",
 };
 
+export const JOB_STATUS_LABELS_EN: Record<JobStatus, string> = {
+  open: "Open",
+  assigned: "Assigned (legacy)",
+  in_progress: "In progress",
+  waiting_vendor: "Waiting on vendor",
+  waiting_parts: "Waiting on parts",
+  waiting_resident: "Waiting on resident",
+  on_hold: "On hold",
+  completed: "Completed",
+};
+
 export const HOLD_STATUSES: HoldStatus[] = [
   "waiting_vendor",
   "waiting_parts",
@@ -157,6 +168,13 @@ export const JOB_PRIORITY_LABELS_ES: Record<JobPriority, string> = {
   medium: "Media",
   high: "Alta",
   emergency: "Urgente",
+};
+
+export const JOB_PRIORITY_LABELS_EN: Record<JobPriority, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  emergency: "Urgent",
 };
 
 export const JOB_RECORD_TYPES: JobRecordType[] = ["work_order", "task"];
@@ -215,6 +233,37 @@ export const JOB_ORIGIN_LABELS_ES: Record<JobOrigin, string> = {
   preventive: "Preventivo",
 };
 
+export const JOB_ORIGIN_LABELS_EN: Record<JobOrigin, string> = {
+  daily_operation: "Daily operation",
+  resident: "Resident",
+  rmm_audit: "RMM audit",
+  client_requirement: "Client requirement",
+  move_out: "Move-out / turn",
+  preventive: "Preventive",
+};
+
+/** UI language for the Phase 5 label maps and validation messages. */
+export type UiLang = "es" | "en";
+
+/** Display label for a job status in the active UI language. Falls
+ * back to the raw stored value for unknown keys. */
+export function jobStatusLabel(status: string, lang: UiLang): string {
+  const labels = lang === "es" ? JOB_STATUS_LABELS_ES : JOB_STATUS_LABELS_EN;
+  return (labels as Record<string, string>)[status] || status;
+}
+
+/** Display label for a job priority in the active UI language. */
+export function jobPriorityLabel(priority: string, lang: UiLang): string {
+  const labels = lang === "es" ? JOB_PRIORITY_LABELS_ES : JOB_PRIORITY_LABELS_EN;
+  return (labels as Record<string, string>)[priority] || priority;
+}
+
+/** Display label for a job origin in the active UI language. */
+export function jobOriginLabel(origin: string, lang: UiLang): string {
+  const labels = lang === "es" ? JOB_ORIGIN_LABELS_ES : JOB_ORIGIN_LABELS_EN;
+  return (labels as Record<string, string>)[origin] || origin;
+}
+
 function nonEmpty(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -228,30 +277,47 @@ export function isHoldStatus(status: string | null | undefined): status is HoldS
  * A hold is valid only with the four recorded facts: WHY it waits
  * (hold_reason), WHEN it will be followed up (hold_follow_up_date),
  * WHO follows it up (hold_follow_up_by) and WHAT happens next
- * (next_action). Returns the list of Spanish error messages (empty =
- * valid). For a job that is not in a hold status there is nothing to
- * validate and the list is empty.
+ * (next_action). Returns the list of error messages in the requested
+ * UI language (empty = valid; Spanish by default, the historical
+ * server behavior). For a job that is not in a hold status there is
+ * nothing to validate and the list is empty.
  */
+const HOLD_ERRORS: Record<UiLang, { reason: string; followUpDate: string; followUpBy: string; nextAction: string }> = {
+  es: {
+    reason: "Falta el motivo de la espera: explica por qué el trabajo está detenido.",
+    followUpDate: "Falta la fecha de seguimiento de la espera.",
+    followUpBy: "Falta el responsable del seguimiento de la espera.",
+    nextAction: "Falta la próxima acción: qué sigue cuando se levante la espera.",
+  },
+  en: {
+    reason: "Missing hold reason: explain why the job is stopped.",
+    followUpDate: "Missing hold follow-up date.",
+    followUpBy: "Missing hold follow-up owner.",
+    nextAction: "Missing next action: what happens when the hold is lifted.",
+  },
+};
+
 export function validateHold(job: {
   status: string;
   holdReason?: string | null;
   holdFollowUpDate?: string | null;
   holdFollowUpBy?: number | null;
   nextAction?: string | null;
-}): string[] {
+}, lang: UiLang = "es"): string[] {
   if (!isHoldStatus(job.status)) return [];
+  const messages = HOLD_ERRORS[lang];
   const errors: string[] = [];
   if (!nonEmpty(job.holdReason)) {
-    errors.push("Falta el motivo de la espera: explica por qué el trabajo está detenido.");
+    errors.push(messages.reason);
   }
   if (!nonEmpty(job.holdFollowUpDate)) {
-    errors.push("Falta la fecha de seguimiento de la espera.");
+    errors.push(messages.followUpDate);
   }
   if (job.holdFollowUpBy == null) {
-    errors.push("Falta el responsable del seguimiento de la espera.");
+    errors.push(messages.followUpBy);
   }
   if (!nonEmpty(job.nextAction)) {
-    errors.push("Falta la próxima acción: qué sigue cuando se levante la espera.");
+    errors.push(messages.nextAction);
   }
   return errors;
 }
@@ -265,29 +331,46 @@ export const holdErrors = validateHold;
  * verifier records a different final action), the TEST that was run
  * (verification_test), its RESULT (verification_result) and the
  * explicit confirmation flag (verification_confirmed === true).
- * Returns the list of Spanish error messages (empty = valid). This is
- * the server-side gate: update_job answers 400 with these errors
+ * Returns the list of error messages in the requested UI language
+ * (empty = valid; Spanish by default, the historical behavior). This
+ * is the server-side gate: update_job answers 400 with these errors
  * instead of closing the job.
  */
+const CLOSE_ERRORS: Record<UiLang, { action: string; test: string; result: string; confirmed: string }> = {
+  es: {
+    action: "Falta registrar el trabajo realizado (o la acción verificada) para cerrar.",
+    test: "Falta la prueba de verificación: qué se probó antes de cerrar.",
+    result: "Falta el resultado de la verificación.",
+    confirmed: "Falta confirmar la verificación: el cierre debe confirmarse explícitamente.",
+  },
+  en: {
+    action: "Missing recorded work performed (or the verified action) to close.",
+    test: "Missing verification test: what was tested before closing.",
+    result: "Missing verification result.",
+    confirmed: "Missing verification confirmation: the closing must be confirmed explicitly.",
+  },
+};
+
 export function validateClose(job: {
   actionPerformed?: string | null;
   verificationAction?: string | null;
   verificationTest?: string | null;
   verificationResult?: string | null;
   verificationConfirmed?: boolean | null;
-}): string[] {
+}, lang: UiLang = "es"): string[] {
+  const messages = CLOSE_ERRORS[lang];
   const errors: string[] = [];
   if (!nonEmpty(job.actionPerformed) && !nonEmpty(job.verificationAction)) {
-    errors.push("Falta registrar el trabajo realizado (o la acción verificada) para cerrar.");
+    errors.push(messages.action);
   }
   if (!nonEmpty(job.verificationTest)) {
-    errors.push("Falta la prueba de verificación: qué se probó antes de cerrar.");
+    errors.push(messages.test);
   }
   if (!nonEmpty(job.verificationResult)) {
-    errors.push("Falta el resultado de la verificación.");
+    errors.push(messages.result);
   }
   if (job.verificationConfirmed !== true) {
-    errors.push("Falta confirmar la verificación: el cierre debe confirmarse explícitamente.");
+    errors.push(messages.confirmed);
   }
   return errors;
 }

@@ -127,6 +127,9 @@ export async function GET(req: NextRequest) {
     const today = localDate(new Date());
     const in7Days = addDays(today, 7);
     const scopeMine = req.nextUrl.searchParams.get("scope") === "mine";
+    // Alert texts are user-visible: they follow the UI language the
+    // client sends (Spanish by default, the historical behavior).
+    const lang = req.nextUrl.searchParams.get("lang") === "en" ? "en" : "es";
 
     const [
       { data: jobRows, error: jobError },
@@ -193,22 +196,29 @@ export async function GET(req: NextRequest) {
     if (overdueFollowUps.length) {
       alerts.push({
         kind: "overdue_followups",
-        text: `${overdueFollowUps.length} seguimiento(s) de espera vencido(s): `
-          + overdueFollowUps.slice(0, 5).map((job) => `#${job.id} ${job.title}`).join("; "),
+        text: lang === "en"
+          ? `${overdueFollowUps.length} overdue hold follow-up(s): `
+            + overdueFollowUps.slice(0, 5).map((job) => `#${job.id} ${job.title}`).join("; ")
+          : `${overdueFollowUps.length} seguimiento(s) de espera vencido(s): `
+            + overdueFollowUps.slice(0, 5).map((job) => `#${job.id} ${job.title}`).join("; "),
         count: overdueFollowUps.length,
       });
     }
     if (lowStockItems.length) {
       alerts.push({
         kind: "low_stock",
-        text: `Bajo stock: ${lowStockItems.map((item) => item.name).join(", ")}`,
+        text: lang === "en"
+          ? `Low stock: ${lowStockItems.map((item) => item.name).join(", ")}`
+          : `Bajo stock: ${lowStockItems.map((item) => item.name).join(", ")}`,
         count: lowStockItems.length,
       });
     }
     if (complianceDue.length) {
       alerts.push({
         kind: "compliance_due",
-        text: `${complianceDue.length} cumplimiento(s) de vendor por verificar o vencidos (vencen en 7 días o antes).`,
+        text: lang === "en"
+          ? `${complianceDue.length} vendor compliance item(s) to verify or expired (due within 7 days or earlier).`
+          : `${complianceDue.length} cumplimiento(s) de vendor por verificar o vencidos (vencen en 7 días o antes).`,
         count: complianceDue.length,
       });
     }

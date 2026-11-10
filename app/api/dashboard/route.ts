@@ -455,7 +455,7 @@ export async function POST(req: NextRequest) {
         nextAction: textField(body.nextAction, 2000),
       };
       if (isHoldStatus(status)) {
-        const holdErrorsList = validateHold(draft);
+        const holdErrorsList = validateHold(draft, body.lang === "en" ? "en" : "es");
         if (holdErrorsList.length) {
           return NextResponse.json(
             { error: "HOLD_FIELDS_REQUIRED", fields: holdErrorsList },
@@ -611,14 +611,14 @@ export async function POST(req: NextRequest) {
       // Hold gate: the four recorded facts, enforced on the merged state
       // whenever the resulting status is any kind of hold.
       if (isHoldStatus(nextStatus)) {
-        const fields = validateHold(merged);
+        const fields = validateHold(merged, body.lang === "en" ? "en" : "es");
         if (fields.length) {
           return NextResponse.json({ error: "HOLD_FIELDS_REQUIRED", fields }, { status: 400 });
         }
       }
       // Closing gate: no verification, no closing. Ever.
       if (closing) {
-        const fields = validateClose(merged);
+        const fields = validateClose(merged, body.lang === "en" ? "en" : "es");
         if (fields.length) {
           return NextResponse.json({ error: "VERIFICATION_REQUIRED", fields }, { status: 400 });
         }

@@ -85,7 +85,7 @@ const copy = {
     signOut: "Sign out", teamMember: "Team member",
   },
   es: {
-    overview: "Resumen", resumen: "Resumen", work: "Work orders", tasks: "Tareas", blocked: "Bloqueados", visits: "Calendario de vendors", photos: "Fotos", config: "Configuración y acceso", team: "Equipo", ai: "Asistente IA", library: "Documentos", logbook: "Bitácora", inspections: "Inspecciones", shop: "Inventario", vendors: "Vendors", reports: "Reportes",
+    overview: "Resumen", resumen: "Resumen", work: "Órdenes de trabajo", tasks: "Tareas", blocked: "Bloqueados", visits: "Calendario de vendors", photos: "Fotos", config: "Configuración y acceso", team: "Equipo", ai: "Asistente IA", library: "Documentos", logbook: "Bitácora", inspections: "Inspecciones", shop: "Inventario", vendors: "Vendors", reports: "Reportes",
     adminPanel: "Administración", subtitle: "Asigna, controla y completa trabajos de mantenimiento",
     newJob: "Asignar trabajo", active: "Activos", completed: "Completados", urgent: "Urgentes",
     technicians: "Equipo", today: "Hoy", noJobs: "Todavía no hay órdenes de trabajo.",

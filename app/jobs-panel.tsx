@@ -18,9 +18,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  HOLD_STATUSES, JOB_BUILDINGS, JOB_CATEGORIES, JOB_ORIGINS, JOB_ORIGIN_LABELS_ES,
-  JOB_PRIORITIES, JOB_PRIORITY_LABELS_ES, JOB_STATUSES, JOB_STATUS_LABELS_ES,
-  isHoldStatus, jobMatchesFilters, validateClose, validateHold,
+  HOLD_STATUSES, JOB_BUILDINGS, JOB_CATEGORIES, JOB_ORIGINS,
+  JOB_PRIORITIES, JOB_STATUSES,
+  isHoldStatus, jobMatchesFilters, jobOriginLabel, jobPriorityLabel, jobStatusLabel,
+  validateClose, validateHold,
   type Job, type JobFilters,
 } from "@/lib/jobs-rules";
 import {
@@ -75,8 +76,7 @@ function priorityClass(priority: string) {
   return priority === "emergency" ? "bg-red-600" : priority === "high" ? "bg-orange-500" : priority === "medium" ? "bg-emerald-600" : "bg-slate-400";
 }
 function statusLabel(status: string, es: boolean) {
-  const label = (JOB_STATUS_LABELS_ES as Record<string, string>)[status];
-  return es ? (label || status) : status;
+  return jobStatusLabel(status, es ? "es" : "en");
 }
 function categoryLabel(key: string | null | undefined, lang: Language) {
   if (!key) return "—";
@@ -195,9 +195,9 @@ export function JobsPanel({ jobs, team, me, lang, preset, onRefresh }: {
             <Input className="min-h-11" placeholder={es ? "Apartamento" : "Unit"} value={filters.unit} onChange={(e) => setFilters({ ...filters, unit: e.target.value })} />
             <FilterSelect value={filters.category} onChange={(v) => setFilters({ ...filters, category: v })} allLabel={es ? "Todas las categorías" : "All categories"} options={JOB_CATEGORIES.map((c) => ({ value: c.key, label: es ? c.es : c.en }))} />
             <FilterSelect value={filters.assignedTo} onChange={(v) => setFilters({ ...filters, assignedTo: v })} allLabel={es ? "Todos los responsables" : "All assignees"} options={team.map((p) => ({ value: String(p.id), label: p.name }))} />
-            <FilterSelect value={filters.priority} onChange={(v) => setFilters({ ...filters, priority: v })} allLabel={es ? "Todas las prioridades" : "All priorities"} options={JOB_PRIORITIES.map((p) => ({ value: p, label: es ? JOB_PRIORITY_LABELS_ES[p] : p }))} />
+            <FilterSelect value={filters.priority} onChange={(v) => setFilters({ ...filters, priority: v })} allLabel={es ? "Todas las prioridades" : "All priorities"} options={JOB_PRIORITIES.map((p) => ({ value: p, label: jobPriorityLabel(p, lang) }))} />
             <FilterSelect value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })} allLabel={es ? "Todos los estados" : "All statuses"} options={JOB_STATUSES.filter((s) => s !== "assigned").map((s) => ({ value: s, label: statusLabel(s, es) }))} />
-            <FilterSelect value={filters.origin} onChange={(v) => setFilters({ ...filters, origin: v })} allLabel={es ? "Todos los orígenes" : "All origins"} options={JOB_ORIGINS.map((o) => ({ value: o, label: es ? JOB_ORIGIN_LABELS_ES[o] : o }))} />
+            <FilterSelect value={filters.origin} onChange={(v) => setFilters({ ...filters, origin: v })} allLabel={es ? "Todos los orígenes" : "All origins"} options={JOB_ORIGINS.map((o) => ({ value: o, label: jobOriginLabel(o, lang) }))} />
             <FilterSelect value={filters.vendorId} onChange={(v) => setFilters({ ...filters, vendorId: v })} allLabel={es ? "Todos los vendors" : "All vendors"} options={vendorOptions.map((v) => ({ value: String(v.id), label: v.name }))} />
             <label className="grid gap-1 text-xs font-bold text-slate-500">{es ? "Desde" : "From"}<Input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label>
             <label className="grid gap-1 text-xs font-bold text-slate-500">{es ? "Hasta" : "To"}<Input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label>
@@ -214,7 +214,7 @@ export function JobsPanel({ jobs, team, me, lang, preset, onRefresh }: {
                     <Badge variant="outline">#{job.id}</Badge>
                     {job.externalRef && <Badge variant="outline">{job.externalRef}</Badge>}
                     <Badge className="bg-slate-100 text-slate-700">{categoryLabel(job.category, lang)}</Badge>
-                    <Badge className={priorityClass(job.priority)}>{es ? (JOB_PRIORITY_LABELS_ES as any)[job.priority] || job.priority : job.priority}</Badge>
+                    <Badge className={priorityClass(job.priority)}>{jobPriorityLabel(job.priority, lang)}</Badge>
                     <Badge className={job.status === "completed" ? "bg-emerald-600" : isHoldStatus(job.status) ? "bg-amber-500" : "bg-emerald-100 text-emerald-800"}>{statusLabel(job.status, es)}</Badge>
                     {hasValidVerification(job) && <Badge className="bg-emerald-600"><CheckCircle2 className="mr-1 size-3" />{es ? "Verificado" : "Verified"}</Badge>}
                   </div>
@@ -267,7 +267,7 @@ function CreateJobDialog({ preset, team, vendors, lang, onRefresh, setMessage }:
     setBusy(true);
     try {
       await api("/api/dashboard", {
-        action: "create_job",
+        action: "create_job", lang,
         title: form.title, description: form.description,
         recordType: form.recordType, category: form.category,
         building: form.building || undefined, unit: form.unit || undefined, area: form.area || undefined,
@@ -310,12 +310,12 @@ function CreateJobDialog({ preset, team, vendors, lang, onRefresh, setMessage }:
             <Input placeholder={es ? "Área (áreas comunes)" : "Area (common areas)"} value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} />
             <Select value={form.origin} onValueChange={(v) => setForm({ ...form, origin: v })}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>{JOB_ORIGINS.map((o) => <SelectItem key={o} value={o}>{es ? JOB_ORIGIN_LABELS_ES[o] : o}</SelectItem>)}</SelectContent>
+              <SelectContent>{JOB_ORIGINS.map((o) => <SelectItem key={o} value={o}>{jobOriginLabel(o, lang)}</SelectItem>)}</SelectContent>
             </Select>
             <Input placeholder={es ? "Referencia externa (WO)" : "External ref (WO)"} value={form.externalRef} onChange={(e) => setForm({ ...form, externalRef: e.target.value })} />
             <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v })}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>{JOB_PRIORITIES.map((p) => <SelectItem key={p} value={p}>{es ? JOB_PRIORITY_LABELS_ES[p] : p}</SelectItem>)}</SelectContent>
+              <SelectContent>{JOB_PRIORITIES.map((p) => <SelectItem key={p} value={p}>{jobPriorityLabel(p, lang)}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={form.assignedTo} onValueChange={(v) => setForm({ ...form, assignedTo: v })}>
               <SelectTrigger className="w-full"><SelectValue placeholder={es ? "Responsable" : "Assignee"} /></SelectTrigger>
@@ -386,7 +386,7 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
   }
 
   const basePayload = () => ({
-    action: "update_job", id: job.id, version: job.version,
+    action: "update_job", lang, id: job.id, version: job.version,
     findings: form.findings, cause: form.cause, actionPerformed: form.actionPerformed,
     nextAction: form.nextAction, description: form.description,
     building: form.building || null, unit: form.unit || null, area: form.area || null,
@@ -402,7 +402,7 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
   async function applyStatus() {
     const candidateStatus = statusDraft;
     if (isHoldStatus(candidateStatus)) {
-      const errs = validateHold({ status: candidateStatus, holdReason: hold.holdReason, holdFollowUpDate: hold.holdFollowUpDate, holdFollowUpBy: hold.holdFollowUpBy ? Number(hold.holdFollowUpBy) : null, nextAction: hold.nextAction });
+      const errs = validateHold({ status: candidateStatus, holdReason: hold.holdReason, holdFollowUpDate: hold.holdFollowUpDate, holdFollowUpBy: hold.holdFollowUpBy ? Number(hold.holdFollowUpBy) : null, nextAction: hold.nextAction }, lang);
       if (errs.length) { setErrors(errs); return; }
       await run(() => api("/api/dashboard", {
         ...basePayload(), status: candidateStatus,
@@ -412,7 +412,7 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
       return;
     }
     if (candidateStatus === "completed") {
-      const errs = validateClose({ actionPerformed: form.actionPerformed, verificationAction: verify.verificationAction, verificationTest: verify.verificationTest, verificationResult: verify.verificationResult, verificationConfirmed: verify.verificationConfirmed });
+      const errs = validateClose({ actionPerformed: form.actionPerformed, verificationAction: verify.verificationAction, verificationTest: verify.verificationTest, verificationResult: verify.verificationResult, verificationConfirmed: verify.verificationConfirmed }, lang);
       if (errs.length) { setErrors(errs); return; }
       await run(() => api("/api/dashboard", {
         ...basePayload(), status: "completed",
@@ -435,9 +435,9 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
             <Badge variant="outline">#{job.id}</Badge>
             {job.externalRef && <Badge variant="outline">{job.externalRef}</Badge>}
             <Badge className="bg-slate-100 text-slate-700">{categoryLabel(job.category, lang)}</Badge>
-            <Badge className={priorityClass(job.priority)}>{es ? (JOB_PRIORITY_LABELS_ES as any)[job.priority] || job.priority : job.priority}</Badge>
+            <Badge className={priorityClass(job.priority)}>{jobPriorityLabel(job.priority, lang)}</Badge>
             <Badge variant="outline">{statusLabel(job.status, es)}</Badge>
-            <Badge variant="outline">{job.recordType === "task" ? (es ? "Tarea" : "Task") : "Work order"}</Badge>
+            <Badge variant="outline">{job.recordType === "task" ? (es ? "Tarea" : "Task") : (es ? "Orden de trabajo" : "Work order")}</Badge>
           </div>
           <h3 className="text-xl font-black">{job.title}</h3>
           <p className="mt-1 text-slate-600">{job.description}</p>
@@ -447,7 +447,7 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
           </p>
           {hasValidVerification(job) && (
             <p className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
-              <CheckCircle2 className="mr-1 inline size-4" />{es ? "Verificación registrada" : "Verification recorded"}: {job.verificationTest || ""} — {job.verificationResult || ""} ({job.verifiedAt ? new Date(job.verifiedAt).toLocaleString() : ""})
+              <CheckCircle2 className="mr-1 inline size-4" />{es ? "Verificación registrada" : "Verification recorded"}: {job.verificationTest || ""} — {job.verificationResult || ""} ({job.verifiedAt ? new Date(job.verifiedAt).toLocaleString(es ? "es-US" : "en-US") : ""})
             </p>
           )}
           {job.status === "completed" && (
@@ -484,7 +484,7 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
             </Select>
             <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v })}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>{JOB_PRIORITIES.map((p) => <SelectItem key={p} value={p}>{es ? JOB_PRIORITY_LABELS_ES[p] : p}</SelectItem>)}</SelectContent>
+              <SelectContent>{JOB_PRIORITIES.map((p) => <SelectItem key={p} value={p}>{jobPriorityLabel(p, lang)}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={form.assignedTo} onValueChange={(v) => setForm({ ...form, assignedTo: v })}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -492,7 +492,7 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
             </Select>
             <Select value={form.origin} onValueChange={(v) => setForm({ ...form, origin: v })}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>{JOB_ORIGINS.map((o) => <SelectItem key={o} value={o}>{es ? JOB_ORIGIN_LABELS_ES[o] : o}</SelectItem>)}</SelectContent>
+              <SelectContent>{JOB_ORIGINS.map((o) => <SelectItem key={o} value={o}>{jobOriginLabel(o, lang)}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={form.vendorId} onValueChange={(v) => setForm({ ...form, vendorId: v })}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -530,7 +530,7 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
                 </Select>
               </div>
               <Textarea placeholder={es ? "Próxima acción" : "Next action"} value={hold.nextAction} onChange={(e) => setHold({ ...hold, nextAction: e.target.value })} />
-              <p className="text-xs text-slate-500">{es ? `Estados de espera: ${(HOLD_STATUSES as string[]).map((s) => statusLabel(s, true)).join(", ")}` : ""}</p>
+              <p className="text-xs text-slate-500">{es ? "Estados de espera: " : "Hold statuses: "}{(HOLD_STATUSES as string[]).map((s) => statusLabel(s, es)).join(", ")}</p>
             </div>
           )}
 
@@ -584,7 +584,7 @@ function JobDetail({ job, team, me, lang, vendors, onRefresh, setMessage }: {
               <span className="font-bold">{entry.action}</span>
               <span className="text-slate-500">{entry.actorEmail}</span>
               {entry.detail && Object.keys(entry.detail).length > 0 && <span className="text-slate-500">{JSON.stringify(entry.detail).slice(0, 160)}</span>}
-              <span className="ml-auto text-xs font-semibold text-slate-400">{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : ""}</span>
+              <span className="ml-auto text-xs font-semibold text-slate-400">{entry.createdAt ? new Date(entry.createdAt).toLocaleString(es ? "es-US" : "en-US") : ""}</span>
             </div>
           ))}
         </CardContent>
