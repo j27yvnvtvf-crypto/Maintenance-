@@ -11,14 +11,21 @@ import {
 import { fetchCsvRows, memberNames } from "@/lib/reports-server";
 
 /**
- * CSV export for reports (Phase 4).
+ * CSV / JSON export for reports (Phase 4 + Phase 5).
  *
- * The CSV is generated ON THE SERVER from the same filtered queries the
- * reports search uses — the client never assembles data exports itself.
- * The gate is identical to every other property datum: an unapproved
- * account (pending / rejected / suspended / revoked) receives 403 here
- * too, with no partial file. One module per file, because each module
- * has its own declared column set (lib/reports-rules.ts CSV_COLUMNS).
+ * The file is generated ON THE SERVER from the same filtered queries
+ * the reports search uses — the client never assembles data exports
+ * itself. The gate is identical to every other property datum: an
+ * unapproved account (pending / rejected / suspended / revoked)
+ * receives 403 here too, with no partial file. One module per file,
+ * because each module has its own declared column set
+ * (lib/reports-rules.ts CSV_COLUMNS).
+ *
+ * ?format=json (Phase 5) returns the same rows in a JSON envelope with
+ * the generation timestamp, the property time zone and an explicit
+ * note that attachments travel as references only, never as files.
+ * Without a format parameter the response is the Phase 4 CSV,
+ * byte-compatible with before.
  */
 
 function failure(error: unknown) {
@@ -62,6 +69,17 @@ export async function GET(req: NextRequest) {
     const admin = createAdminClient();
     const names = await memberNames(admin);
     const rows = await fetchCsvRows(admin, moduleKey, filters, names);
+    if (params.get("format") === "json") {
+      return NextResponse.json({
+        generatedAt: new Date().toISOString(),
+        timeZone: "America/New_York",
+        module: moduleKey,
+        filters,
+        attachmentsIncluded: false,
+        attachmentsNote: "La exportación incluye solo referencias a adjuntos, no los archivos.",
+        rows,
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
     const csv = buildCsv(moduleKey, rows);
     const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
     return new NextResponse("\uFEFF" + csv, { // BOM so Excel reads accents correctly

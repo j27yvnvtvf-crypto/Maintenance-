@@ -448,16 +448,19 @@ export async function GET(req: NextRequest) {
       const [{ data: resultRows, error: resultError },
         { data: actionRows, error: actionError },
         { data: attachmentRows, error: attachmentError },
-        { data: historyRows, error: historyError }] = await Promise.all([
+        { data: historyRows, error: historyError },
+        { data: readingRows, error: readingError }] = await Promise.all([
         admin.from("inspection_results").select("*").eq("inspection_id", inspection.id).order("position", { ascending: true }),
         admin.from("corrective_actions").select("*").eq("inspection_id", inspection.id).order("created_at", { ascending: true }),
         admin.from("inspection_attachments").select("*").eq("inspection_id", inspection.id).order("created_at", { ascending: true }),
         admin.from("inspection_history").select("*").eq("inspection_id", inspection.id).order("created_at", { ascending: true }).limit(500),
+        admin.from("inspection_readings").select("*").eq("inspection_id", inspection.id).order("created_at", { ascending: true }).limit(500),
       ]);
       if (resultError) throw resultError;
       if (actionError) throw actionError;
       if (attachmentError) throw attachmentError;
       if (historyError) throw historyError;
+      if (readingError) throw readingError;
 
       const results = (resultRows || []) as ResultRow[];
       const actions = (actionRows || []) as CorrectiveRow[];
@@ -502,6 +505,24 @@ export async function GET(req: NextRequest) {
         })),
         attachments: attachments.filter((file) => file.resultId == null && file.correctiveActionId == null),
         actionAttachments: attachments.filter((file) => file.correctiveActionId != null),
+        readings: ((readingRows || []) as {
+          id: number; inspection_id: number; result_id: number | null;
+          label: string; value: string | null; unit: string | null;
+          location: string | null; measured_at: string | null;
+          recorded_by_member_id: number | null; created_at: string;
+        }[]).map((row) => ({
+          id: row.id,
+          inspectionId: row.inspection_id,
+          resultId: row.result_id,
+          label: row.label,
+          value: row.value,
+          unit: row.unit,
+          location: row.location,
+          measuredAt: row.measured_at,
+          recordedByMemberId: row.recorded_by_member_id,
+          recordedByName: row.recorded_by_member_id ? names.get(row.recorded_by_member_id) || null : null,
+          createdAt: row.created_at,
+        })),
         history: ((historyRows || []) as HistoryRow[]).map((entry) => ({
           id: entry.id,
           action: entry.action,
@@ -1071,6 +1092,37 @@ export async function POST(req: NextRequest) {
     if (!inspectionId) return NextResponse.json({ error: "Inspection is required" }, { status: 400 });
     const inspection = await getInspectionOr404(admin, inspectionId);
     if (!inspection) return NextResponse.json({ error: "Inspection not found" }, { status: 404 });
+
+    if (action === "add_reading") {
+      // Structured measurement (Phase 5): a labelled value with its
+      // unit and location, optionally pinned to one checklist result.
+      if (!canExecuteInspection(me)) throw new Error("FORBIDDEN");
+      const label = textField(body.label, 200);
+      if (!label) return NextResponse.json({ error: "A reading label is required" }, { status: 400 });
+      const resultId = body.resultId ? Number(body.resultId) : null;
+      if (resultId) {
+        const result = await getResultOr404(admin, resultId);
+        if (!result || result.inspection_id !== inspection.id) {
+          return NextResponse.json({ error: "Result not found in this inspection" }, { status: 400 });
+        }
+      }
+      const { data: reading, error } = await admin.from("inspection_readings").insert({
+        inspection_id: inspection.id,
+        result_id: resultId,
+        label,
+        value: body.value === undefined || body.value === null ? null : String(body.value).trim().slice(0, 200) || null,
+        unit: textField(body.unit, 40),
+        location: textField(body.location, 200),
+        measured_at: now,
+        recorded_by_member_id: me.id,
+        recorded_by_user_id: me.user_id,
+      }).select("id").single<{ id: number }>();
+      if (error) throw error;
+      await writeHistory(admin, me, inspection.id, "details_updated", {
+        readingId: reading.id, label, resultId,
+      });
+      return NextResponse.json({ readingId: reading.id });
+    }
 
     if (action === "update_inspection") {
       if (!canExecuteInspection(me)) throw new Error("FORBIDDEN");

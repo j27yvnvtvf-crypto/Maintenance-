@@ -95,6 +95,13 @@ type WorkOrderRow = {
   category: string; priority: string; status: string;
   assigned_to: number | null; due_date: string | null;
   completion_comment: string | null; created_at: string; updated_at: string;
+  // Phase 5 central-registry fields (read by the "jobs" module).
+  record_type?: string; origin?: string; external_ref?: string | null;
+  building?: string | null; unit?: string | null; scheduled_date?: string | null;
+  next_action?: string | null;
+  hold_reason?: string | null; hold_follow_up_date?: string | null;
+  hold_follow_up_by?: number | null; vendor_id?: number | null;
+  verified_by_member_id?: number | null; verified_at?: string | null;
 };
 
 type InventoryItemRow = {
@@ -224,7 +231,7 @@ async function nameMap(
 }
 
 /** Modules whose rows carry structured building/unit columns. */
-const LOCATION_MODULES: ReportModule[] = ["logbook", "inspections", "assets"];
+const LOCATION_MODULES: ReportModule[] = ["logbook", "inspections", "assets", "jobs"];
 
 function locationBlocked(filters: ReportFilters, module: ReportModule): boolean {
   if (!filters.building && !filters.unit) return false;
@@ -302,6 +309,34 @@ function correctiveFetched(
     completedAt: row.completed_at, attachments, evidenceState: evidence,
     verifiedBy: verifiedByName, verifiedAt: row.verified_at,
     workOrderId: row.work_order_id, logEventFolio,
+  };
+  return { item, csv };
+}
+
+function jobFetched(row: WorkOrderRow, names: Map<number, string>, vendorName: string | null): FetchedRow {
+  const verifiedByName = nameOf(names, row.verified_by_member_id ?? null);
+  const item: ReportResultItem = {
+    module: "jobs", id: row.id, ref: `#${row.id}`, title: row.title,
+    date: row.created_at, status: row.status,
+    location: locationOf([row.building, row.unit, row.area]),
+    memberId: row.assigned_to, memberName: nameOf(names, row.assigned_to),
+    building: row.building ?? null, unit: row.unit ?? null,
+    evidence: null, attachmentCount: 0,
+    verifiedByName, verifiedAt: row.verified_at ?? null,
+  };
+  const csv = {
+    id: row.id, createdAt: row.created_at, title: row.title,
+    recordType: row.record_type ?? null, origin: row.origin ?? null,
+    externalRef: row.external_ref ?? null,
+    building: row.building ?? null, unit: row.unit ?? null, area: row.area,
+    category: row.category, priority: row.priority, status: row.status,
+    assigned: nameOf(names, row.assigned_to), due: row.due_date,
+    scheduled: row.scheduled_date ?? null, vendor: vendorName,
+    holdReason: row.hold_reason ?? null,
+    holdFollowUpDate: row.hold_follow_up_date ?? null,
+    holdFollowUpBy: nameOf(names, row.hold_follow_up_by ?? null),
+    nextAction: row.next_action ?? null,
+    verifiedBy: verifiedByName, verifiedAt: row.verified_at ?? null,
   };
   return { item, csv };
 }
@@ -523,6 +558,22 @@ async function fetchWorkOrders(admin: AdminClient, filters: ReportFilters, names
   return rows.map((row) => workOrderFetched(row, names));
 }
 
+async function fetchJobs(admin: AdminClient, filters: ReportFilters, names: Map<number, string>): Promise<FetchedRow[]> {
+  let query = admin.from("work_orders").select("*").order("created_at", { ascending: false }).limit(FETCH_LIMIT);
+  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.building) query = query.eq("building", filters.building);
+  if (filters.unit) query = query.eq("unit", filters.unit);
+  if (filters.memberId) query = query.eq("assigned_to", filters.memberId);
+  const { data, error } = await query;
+  if (error) throw error;
+  let rows = (data || []) as WorkOrderRow[];
+  rows = rows.filter((row) =>
+    dateInRange(localDate(row.created_at), filters) &&
+    matchesQuery(filters.q, [row.id, row.title, row.description, row.external_ref, row.building, row.unit, row.area, row.category]));
+  const vendors = await nameMap(admin, "vendors", "company_name", rows.map((row) => row.vendor_id || 0));
+  return rows.map((row) => jobFetched(row, names, row.vendor_id ? vendors.get(row.vendor_id) || null : null));
+}
+
 async function fetchInventory(admin: AdminClient, filters: ReportFilters, names: Map<number, string>): Promise<FetchedRow[]> {
   if (locationBlocked(filters, "inventory")) return [];
   let query = admin.from("inventory_items").select("*").order("name", { ascending: true }).limit(FETCH_LIMIT);
@@ -647,6 +698,7 @@ const FETCHERS: Record<ReportModule, (admin: AdminClient, filters: ReportFilters
   assets: fetchAssets,
   refrigerant: fetchRefrigerant,
   vendors: fetchVendors,
+  jobs: fetchJobs,
 };
 
 export type ReportSearch = {
@@ -710,6 +762,7 @@ const KIND_BY_MODULE: Record<string, TimelineEntry["kind"]> = {
   inspections: "inspection",
   corrective: "corrective_action",
   work_orders: "work_order",
+  jobs: "work_order",
   vendors: "vendor_job",
   refrigerant: "refrigerant",
   movements: "inventory_movement",

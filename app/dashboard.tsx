@@ -4,8 +4,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle, BookOpen, Bot, Building2, CheckCircle2, ClipboardList, Languages,
-  ClipboardCheck, FileSearch, LayoutDashboard, LogOut, NotebookPen, Plus, RefreshCw, Sparkles, UserRoundPlus, Users, Warehouse, Waves, Wrench,
+  AlertTriangle, Ban, BookOpen, Bot, Building2, CalendarDays, Camera, CheckCircle2, ClipboardList, Languages,
+  ClipboardCheck, FileSearch, LayoutDashboard, ListTodo, LogOut, NotebookPen, Plus, RefreshCw, Settings, Sparkles, UserRoundPlus, Users, Warehouse, Waves, Wrench,
 } from "lucide-react";
 import { LibraryPanel } from "./library-panel";
 import { LogbookPanel, LogbookTodayCard } from "./logbook-panel";
@@ -13,6 +13,11 @@ import { InspectionsPanel, InspectionsTodayCard } from "./inspections-panel";
 import { ShopPanel, ShopTodayCard } from "./shop-panel";
 import { VendorsPanel } from "./vendors-panel";
 import { ReportsPanel } from "./reports-panel";
+import { CentroPanel } from "./centro-panel";
+import { JobsPanel, type JobsPreset } from "./jobs-panel";
+import { VisitsPanel } from "./visits-panel";
+import { PhotosPanel } from "./photos-panel";
+import type { Job as CentroJob } from "@/lib/jobs-rules";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,12 +45,7 @@ type AuditEntry = {
   id: number; actor_email: string; action: string; target_email: string | null;
   detail?: Record<string, unknown>; created_at: string;
 };
-type Job = {
-  id: number; title: string; description: string; area: string; category: string;
-  priority: string; status: string; assignedTo: number | null; assignedName: string | null;
-  dueDate: string | null; completionComment: string | null; residentNote: string | null;
-  updatedAt: string;
-};
+type Job = CentroJob;
 type Data = {
   me: Member; team: Member[]; jobs: Job[]; pendingTeam: Member[];
   auditLog: AuditEntry[]; accessState: string;
@@ -53,7 +53,7 @@ type Data = {
 
 const copy = {
   en: {
-    overview: "Overview", work: "Work Orders", team: "Team", ai: "AI Assistant", library: "Library", logbook: "Logbook", inspections: "Inspections", shop: "Shop", vendors: "Vendors", reports: "Reports",
+    overview: "Overview", resumen: "Summary", work: "Work Orders", tasks: "Tasks", blocked: "Blocked", visits: "Vendor Calendar", photos: "Photos", config: "Settings & Access", team: "Team", ai: "AI Assistant", library: "Library", logbook: "Logbook", inspections: "Inspections", shop: "Shop", vendors: "Vendors", reports: "Reports",
     adminPanel: "Administration", subtitle: "Assign, track, and close maintenance work",
     newJob: "Assign Work", active: "Active", completed: "Completed", urgent: "Urgent",
     technicians: "Team", today: "Today", noJobs: "No work orders yet.",
@@ -85,7 +85,7 @@ const copy = {
     signOut: "Sign out", teamMember: "Team member",
   },
   es: {
-    overview: "Resumen", work: "Órdenes", team: "Equipo", ai: "Asistente IA", library: "Biblioteca", logbook: "Bitácora", inspections: "Inspecciones", shop: "Shop", vendors: "Vendors", reports: "Reportes",
+    overview: "Resumen", resumen: "Resumen", work: "Work orders", tasks: "Tareas", blocked: "Bloqueados", visits: "Calendario de vendors", photos: "Fotos", config: "Configuración y acceso", team: "Equipo", ai: "Asistente IA", library: "Documentos", logbook: "Bitácora", inspections: "Inspecciones", shop: "Inventario", vendors: "Vendors", reports: "Reportes",
     adminPanel: "Administración", subtitle: "Asigna, controla y completa trabajos de mantenimiento",
     newJob: "Asignar trabajo", active: "Activos", completed: "Completados", urgent: "Urgentes",
     technicians: "Equipo", today: "Hoy", noJobs: "Todavía no hay órdenes de trabajo.",
@@ -118,11 +118,6 @@ const copy = {
   },
 };
 
-const statusLabels: Record<Language, Record<string, string>> = {
-  en: { open: "Open", assigned: "Assigned", in_progress: "In progress", on_hold: "On hold", completed: "Completed" },
-  es: { open: "Abierta", assigned: "Asignada", in_progress: "En progreso", on_hold: "En espera", completed: "Completada" },
-};
-
 async function api(path: string, body?: unknown) {
   const res = await fetch(path, body ? {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -134,7 +129,21 @@ async function api(path: string, body?: unknown) {
 
 export function Dashboard() {
   const [data, setData] = useState<Data | null>(null);
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("resumen");
+  const [jobsPreset, setJobsPreset] = useState<JobsPreset>({ recordType: "work_order" });
+
+  const navigate = useCallback((view: string, preset?: JobsPreset) => {
+    if (view === "work" || view === "tasks" || view === "blocked") {
+      setJobsPreset(preset || (view === "tasks"
+        ? { recordType: "task" }
+        : view === "blocked"
+          ? { statuses: ["waiting_vendor", "waiting_parts", "waiting_resident", "on_hold"] }
+          : { recordType: "work_order" }));
+    } else if (preset) {
+      setJobsPreset(preset);
+    }
+    setTab(view);
+  }, []);
   const [jobOpen, setJobOpen] = useState(false);
   const [memberOpen, setMemberOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -202,12 +211,6 @@ export function Dashboard() {
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
-  async function updateJob(id: number, status: string) {
-    try {
-      await api("/api/dashboard", { action: "update_job", id, status });
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    await load();
-  }
   async function requestAccess(details: { name: string; phone: string; jobTitle: string }) {
     setBusy(true);
     try {
@@ -271,12 +274,19 @@ export function Dashboard() {
     finally { setBusy(false); }
   }
   async function completeJob() {
+    // Phase 5 (spec §5/§11): this assistant only drafts the closure texts.
+    // It must NOT close the work order — closing requires the mandatory
+    // verification recorded in the job detail (the server rejects a direct
+    // close without it). The generated texts are saved as note drafts.
     try {
       await api("/api/dashboard", {
-        action: "update_job", id: Number(closure.jobId), status: "completed",
-        completionComment: closure.maintenanceComment, residentNote: closure.residentNote,
+        action: "save_note_drafts", id: Number(closure.jobId),
+        maintenanceComment: closure.maintenanceComment, residentNote: closure.residentNote,
       });
       setAiOpen(false);
+      setMessage(lang === "es"
+        ? "Notas guardadas como borrador en el trabajo. El cierre requiere registrar la verificación en el detalle del trabajo."
+        : "Notes saved as drafts on the work order. Closing requires recording the verification in the work order detail.");
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
   }
@@ -285,10 +295,10 @@ export function Dashboard() {
     return (
       <main className="grid min-h-screen place-items-center bg-slate-50">
         <div className="text-center">
-          <Wrench className="mx-auto mb-4 size-10 animate-pulse text-[#006b8f]" />
+          <Wrench className="mx-auto mb-4 size-10 animate-pulse text-[#1e7a4c]" />
           <p>{message || "Loading maintenance system…"}</p>
           {message && (
-            <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-[#006b8f] px-4 py-2 font-bold text-white">
+            <button type="button" onClick={() => window.location.reload()} className="mt-4 rounded-xl bg-[#1e7a4c] px-4 py-2 font-bold text-white">
               Retry / Reintentar
             </button>
           )}
@@ -311,17 +321,17 @@ export function Dashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f6f9] pb-24 text-slate-900 lg:pb-8">
+    <main className="min-h-screen bg-[#f2f7f3] pb-24 text-slate-900 lg:pb-8">
       <Header data={data} lang={lang} setLanguage={changeLanguage} t={t} />
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[230px_1fr] lg:px-8">
-        <SideNav tab={tab} setTab={setTab} t={t} name={data.me.name} />
+        <SideNav tab={tab} setTab={navigate} t={t} name={data.me.name} />
         <section className="min-w-0">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-bold uppercase tracking-[.12em] text-[#007a9f]">
+              <p className="text-sm font-bold uppercase tracking-[.12em] text-[#1e7a4c]">
                 {admin ? t.adminPanel : t.dailyWork}
               </p>
-              <h2 className="text-2xl font-black">{tab === "overview" ? t.overview : tab === "work" ? t.work : tab === "team" ? t.team : tab === "library" ? t.library : tab === "logbook" ? t.logbook : tab === "inspections" ? t.inspections : tab === "shop" ? t.shop : tab === "vendors" ? t.vendors : tab === "reports" ? t.reports : t.ai}</h2>
+              <h2 className="text-2xl font-black">{{ resumen: t.resumen, work: t.work, tasks: t.tasks, blocked: t.blocked, team: t.team, config: t.config, library: t.library, logbook: t.logbook, inspections: t.inspections, shop: t.shop, vendors: t.vendors, visits: t.visits, photos: t.photos, reports: t.reports, ai: t.ai }[tab] || t.resumen}</h2>
             </div>
             <NewJobDialog
               open={jobOpen} setOpen={setJobOpen} t={t} form={form}
@@ -330,8 +340,9 @@ export function Dashboard() {
             />
           </div>
 
-          {(tab === "overview" || tab === "work") && (
+          {tab === "resumen" && (
             <>
+              <CentroPanel lang={lang} onNavigate={navigate} />
               <Stats t={t} stats={stats} technicians={technicians.length} />
               <Card className="mt-4 rounded-3xl border-0 shadow-sm">
                 <CardHeader className="pb-3">
@@ -342,25 +353,28 @@ export function Dashboard() {
                   <Progress value={completion} className="mt-3" />
                 </CardHeader>
               </Card>
-              {tab === "overview" && (
-                <>
-                  <LogbookTodayCard lang={lang} onOpen={() => setTab("logbook")} />
-                  <InspectionsTodayCard lang={lang} onOpen={() => setTab("inspections")} />
-                  <ShopTodayCard lang={lang} onOpen={() => setTab("shop")} />
-                </>
-              )}
-              <JobList
-                jobs={jobs} lang={lang} t={t} updateJob={updateJob}
-                canUpdate
-                openAI={(id: number) => {
-                  setClosure({ jobId: String(id), whatDone: "", result: "", maintenanceComment: "", residentNote: "" });
-                  setAiOpen(true);
-                }}
-              />
+              <LogbookTodayCard lang={lang} onOpen={() => navigate("logbook")} />
+              <InspectionsTodayCard lang={lang} onOpen={() => navigate("inspections")} />
+              <ShopTodayCard lang={lang} onOpen={() => navigate("shop")} />
             </>
           )}
 
-          {tab === "team" && (
+          {(tab === "work" || tab === "tasks" || tab === "blocked") && (
+            <JobsPanel
+              jobs={jobs} team={data.team} me={data.me} lang={lang}
+              preset={jobsPreset} onRefresh={load}
+            />
+          )}
+
+          {tab === "visits" && (
+            <VisitsPanel lang={lang} team={data.team} />
+          )}
+
+          {tab === "photos" && (
+            <PhotosPanel lang={lang} onNavigate={navigate} />
+          )}
+
+          {(tab === "team" || tab === "config") && (
             <TeamPanel
               data={data} t={t} lang={lang} admin={admin}
               open={memberOpen} setOpen={setMemberOpen} member={member}
@@ -399,7 +413,7 @@ export function Dashboard() {
         </section>
       </div>
 
-      <MobileNav tab={tab} setTab={setTab} t={t} />
+      <MobileNav tab={tab} setTab={navigate} t={t} />
       <AIClosureDialog
         open={aiOpen} setOpen={setAiOpen} t={t} jobs={jobs}
         closure={closure} setClosure={setClosure} busy={busy}
@@ -431,8 +445,8 @@ function AccessScreen({ member, lang, t, busy, requestAccess, setLanguage }: any
   };
   const [title, text] = messages[status] || messages.pending;
   return (
-    <main className="min-h-screen bg-[#f1f6f9] text-slate-900">
-      <header className="bg-gradient-to-r from-[#003a5d] to-[#007a9f] px-5 py-5 text-white">
+    <main className="min-h-screen bg-[#f2f7f3] text-slate-900">
+      <header className="bg-gradient-to-r from-[#0d3b2a] to-[#1e7a4c] px-5 py-5 text-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
           <div className="flex items-center gap-3"><Waves /><span className="text-lg font-extrabold">Maintenance</span></div>
           <div className="flex items-center gap-2">
@@ -452,7 +466,7 @@ function AccessScreen({ member, lang, t, busy, requestAccess, setLanguage }: any
         <Card className="mx-auto max-w-xl rounded-3xl border-0 shadow-sm">
           <CardContent className="p-10">
             <div className="text-center">
-              <RefreshCw className="mx-auto mb-5 size-10 text-[#007a9f]" />
+              <RefreshCw className="mx-auto mb-5 size-10 text-[#1e7a4c]" />
               <h1 className="text-2xl font-black">{title}</h1>
               <p className="mt-3 text-slate-600">{text}</p>
               <p className="mt-4 text-sm font-semibold text-slate-500">{member.name} · {member.email}</p>
@@ -503,13 +517,13 @@ function AccessScreen({ member, lang, t, busy, requestAccess, setLanguage }: any
 
 function Header({ data, lang, setLanguage, t }: any) {
   return (
-    <header className="sticky top-0 z-30 border-b border-white/15 bg-gradient-to-r from-[#003a5d] to-[#007a9f] text-white shadow-lg">
+    <header className="sticky top-0 z-30 border-b border-white/15 bg-gradient-to-r from-[#0d3b2a] to-[#1e7a4c] text-white shadow-lg">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white/15"><Waves /></div>
           <div className="min-w-0">
             <h1 className="truncate text-lg font-extrabold tracking-tight">Maintenance</h1>
-            <p className="truncate text-sm text-cyan-50/80">{t.subtitle}</p>
+            <p className="truncate text-sm text-emerald-50/80">{t.subtitle}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -533,13 +547,17 @@ function Header({ data, lang, setLanguage, t }: any) {
   );
 }
 
+function navItems(t: any) {
+  return [["resumen", LayoutDashboard, t.resumen], ["work", ClipboardList, t.work], ["tasks", ListTodo, t.tasks], ["blocked", Ban, t.blocked], ["inspections", ClipboardCheck, t.inspections], ["visits", CalendarDays, t.visits], ["shop", Warehouse, t.shop], ["photos", Camera, t.photos], ["reports", FileSearch, t.reports], ["library", BookOpen, t.library], ["logbook", NotebookPen, t.logbook], ["vendors", Building2, t.vendors], ["config", Settings, t.config], ["ai", Bot, t.ai]];
+}
+
 function SideNav({ tab, setTab, t, name }: any) {
-  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["logbook", NotebookPen, t.logbook], ["inspections", ClipboardCheck, t.inspections], ["shop", Warehouse, t.shop], ["vendors", Building2, t.vendors], ["reports", FileSearch, t.reports], ["team", Users, t.team], ["library", BookOpen, t.library], ["ai", Bot, t.ai]];
+  const items = navItems(t);
   return (
-    <aside className="hidden h-fit rounded-3xl bg-[#052f49] p-3 text-white shadow-xl lg:block">
-      <div className="px-3 pb-4 pt-2"><p className="text-xs uppercase tracking-[.18em] text-cyan-100/60">{t.today}</p><p className="mt-1 font-bold">{name}</p></div>
+    <aside className="hidden h-fit rounded-3xl bg-[#0d3b2a] p-3 text-white shadow-xl lg:block">
+      <div className="px-3 pb-4 pt-2"><p className="text-xs uppercase tracking-[.18em] text-emerald-100/60">{t.today}</p><p className="mt-1 font-bold">{name}</p></div>
       {items.map(([id, Icon, label]: any) => (
-        <button key={id} onClick={() => setTab(id)} className={`mb-1 flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left font-semibold transition ${tab === id ? "bg-white text-[#05324d]" : "text-cyan-50/80 hover:bg-white/10"}`}>
+        <button key={id} onClick={() => setTab(id)} className={`mb-1 flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 py-3 text-left font-semibold transition ${tab === id || (id === "config" && tab === "team") ? "bg-white text-[#0d3b2a]" : "text-emerald-50/80 hover:bg-white/10"}`}>
           <Icon className="size-5" />{label}
         </button>
       ))}
@@ -597,38 +615,6 @@ function NewJobDialog({ open, setOpen, t, form, setForm, technicians, busy, crea
         <DialogFooter><Button onClick={createJob} disabled={busy || !form.title || !form.description}>{t.create}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function JobList({ jobs, lang, t, updateJob, openAI, canUpdate }: any) {
-  return (
-    <div className="mt-5 space-y-3">
-      {jobs.length === 0 ? (
-        <Card className="rounded-3xl border-dashed bg-white/60"><CardContent className="p-10 text-center text-slate-500">{t.noJobs}</CardContent></Card>
-      ) : jobs.map((job: Job) => (
-        <Card key={job.id} className="overflow-hidden rounded-3xl border-0 shadow-sm">
-          <div className={`h-1.5 ${job.priority === "emergency" ? "bg-red-600" : job.priority === "high" ? "bg-orange-500" : job.priority === "medium" ? "bg-sky-600" : "bg-slate-300"}`} />
-          <CardContent className="p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="mb-2 flex flex-wrap gap-2">
-                  <Badge variant="outline">#{job.id}</Badge><Badge className="bg-slate-100 text-slate-700">{job.category}</Badge>
-                  <Badge className={job.priority === "emergency" ? "bg-red-600" : job.priority === "high" ? "bg-orange-500" : "bg-[#007a9f]"}>{job.priority}</Badge>
-                </div>
-                <h3 className="text-lg font-extrabold">{job.title}</h3>
-                <p className="mt-1 text-slate-600">{job.description}</p>
-                <p className="mt-3 text-sm font-semibold text-slate-500">{job.area} · {t.assigned}: {job.assignedName || t.unassigned}</p>
-              </div>
-              <Select value={job.status} onValueChange={(value) => updateJob(job.id, value)} disabled={!canUpdate}>
-                <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
-                <SelectContent>{["open", "assigned", "in_progress", "on_hold", "completed"].map((status) => <SelectItem key={status} value={status}>{statusLabels[lang as Language][status]}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            {canUpdate && job.status !== "completed" && <div className="mt-4 flex justify-end"><Button variant="outline" onClick={() => openAI(job.id)}><Bot />{t.ai}</Button></div>}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
   );
 }
 
@@ -728,9 +714,9 @@ function TeamPanel({ data, t, lang, admin, open, setOpen, member, setMember, add
 function AIPanel({ t, summary, busy, openAI, dailySummary, canSummarize }: any) {
   return (
     <div className={`grid gap-4 ${canSummarize ? "lg:grid-cols-2" : ""}`}>
-      <Card className="rounded-3xl border-0 bg-gradient-to-br from-[#052f49] to-[#007a9f] text-white shadow-lg">
+      <Card className="rounded-3xl border-0 bg-gradient-to-br from-[#0d3b2a] to-[#1e7a4c] text-white shadow-lg">
         <CardHeader><Bot className="size-10 text-[#e3c477]" /><CardTitle>{t.aiTitle}</CardTitle></CardHeader>
-        <CardContent><p className="text-cyan-50/80">{t.aiHint}</p><Button className="mt-5 bg-[#d0aa5b] text-[#143449] hover:bg-[#c09a4d]" onClick={openAI}><Sparkles />{t.generate}</Button></CardContent>
+        <CardContent><p className="text-emerald-50/80">{t.aiHint}</p><Button className="mt-5 bg-[#d0aa5b] text-[#143449] hover:bg-[#c09a4d]" onClick={openAI}><Sparkles />{t.generate}</Button></CardContent>
       </Card>
       {canSummarize && <Card className="rounded-3xl border-0 shadow-sm">
         <CardHeader><CardTitle>{t.summary}</CardTitle></CardHeader>
@@ -744,12 +730,12 @@ function AIPanel({ t, summary, busy, openAI, dailySummary, canSummarize }: any) 
 }
 
 function MobileNav({ tab, setTab, t }: any) {
-  const items = [["overview", LayoutDashboard, t.overview], ["work", ClipboardList, t.work], ["logbook", NotebookPen, t.logbook], ["inspections", ClipboardCheck, t.inspections], ["shop", Warehouse, t.shop], ["vendors", Building2, t.vendors], ["reports", FileSearch, t.reports], ["team", Users, t.team], ["library", BookOpen, t.library], ["ai", Bot, t.ai]];
+  const items = navItems(t);
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-10 border-t bg-white px-2 py-2 shadow-[0_-8px_25px_rgba(15,23,42,.08)] lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex overflow-x-auto border-t bg-white px-2 py-2 shadow-[0_-8px_25px_rgba(15,23,42,.08)] lg:hidden">
       {items.map(([id, Icon, label]: any) => (
-        <button key={id} onClick={() => setTab(id)} className={`grid justify-items-center gap-1 rounded-xl py-2 text-[10px] font-bold ${tab === id ? "bg-sky-50 text-[#005f82]" : "text-slate-500"}`}>
-          <Icon className="size-5" />{label}
+        <button key={id} onClick={() => setTab(id)} className={`grid min-w-[64px] justify-items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-bold ${tab === id || (id === "config" && tab === "team") ? "bg-emerald-50 text-[#1e7a4c]" : "text-slate-500"}`}>
+          <Icon className="size-5" /><span className="max-w-full truncate">{label}</span>
         </button>
       ))}
     </nav>

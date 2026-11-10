@@ -199,7 +199,11 @@ test("overdue is computed at read time, never stored", () => {
 test("frequencies are configuration, never an imposed official schedule", () => {
   assert.deepEqual(
     [...rules.FREQUENCY_TYPES].sort(),
-    ["annual", "custom", "daily", "monthly", "none", "quarterly", "weekly"],
+    // Phase 5 adjustment: 'semiannual' joins the configurable labels
+    // (Centro de Operaciones migration widens the template CHECK with
+    // it); the rule below — frequencies are never an imposed schedule —
+    // is unchanged.
+    ["annual", "custom", "daily", "monthly", "none", "quarterly", "semiannual", "weekly"],
   );
   // The rules module defines no frequency→days mapping and never
   // computes dates itself: nothing in the system turns a chosen
